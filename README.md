@@ -1,0 +1,4 @@
+```
+cd functions
+firebase deploy
+```
