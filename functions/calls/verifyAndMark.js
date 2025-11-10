@@ -26,13 +26,20 @@ exports.verifyAndMark = async (request) => {
     throw new functions.https.HttpsError("invalid-argument", "Malformed token");
   }
 
+  // Recreate the expected signature using HMAC and compare with the provided signature
   const expectedSig = crypto.createHmac("sha256", SECRET).update(payloadB64).digest("hex");
   if (expectedSig !== sig) {
     throw new functions.https.HttpsError("permission-denied", "Invalid token signature");
   }
 
   // Parse payload
-  const payload = JSON.parse(Buffer.from(payloadB64, "base64").toString());
+  let payload;
+  try {
+    payload = JSON.parse(Buffer.from(payloadB64, "base64").toString());
+  } catch (error) {
+    throw new functions.https.HttpsError("invalid-argument", "Invalid token payload");
+  }
+
   const { bookingId, userId, assetId, action, uuid, expiresAt } = payload;
 
   if (!bookingId || !userId || !assetId || !action || !uuid) {

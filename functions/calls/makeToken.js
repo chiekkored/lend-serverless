@@ -82,8 +82,8 @@ exports.makeToken = async (request) => {
   // Prepare Firestore update data
   const updateData = {
     tokens: {
-      handoverToken: handoverUuid,
-      returnToken: returnUuid,
+      handoverToken,
+      returnToken,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       handoverExpiry: admin.firestore.Timestamp.fromDate(handoverExpiry),
       returnExpiry: admin.firestore.Timestamp.fromDate(returnExpiry),
