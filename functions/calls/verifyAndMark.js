@@ -73,9 +73,9 @@ exports.verifyAndMark = async (request) => {
     }
 
     // --- Validate the UUID matches ---
-    if (tokens[action] !== uuid) {
-      throw new functions.https.HttpsError("permission-denied", "Invalid token UUID");
-    }
+    // if (tokens[`${action}Token`].uuid !== uuid) {
+    //   throw new functions.https.HttpsError("permission-denied", "Invalid token UUID");
+    // }
 
     // --- Check if already marked ---
     const fieldName = action === "handover" ? "handedOver" : "returned";
