@@ -85,14 +85,17 @@ exports.verifyAndMark = async (request) => {
       throw new functions.https.HttpsError("failed-precondition", `Booking already marked as ${action}`);
     }
 
+    // FIXME
+    const now = admin.firestore.FieldValue.serverTimestamp() || admin.firestore.Timestamp.now();
+
     // --- Update both booking documents ---
     const updateData = {
       [fieldName]: {
         status: true,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: now,
         verifiedBy: auth.uid,
       },
-      lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+      lastUpdated: now,
     };
 
     tx.update(userBookingRef, updateData);
@@ -102,7 +105,7 @@ exports.verifyAndMark = async (request) => {
     const event = {
       action,
       actorId: auth.uid,
-      verifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+      verifiedAt: now,
       tokenUuid: uuid,
     };
     tx.set(userBookingRef.collection("events").doc(), event);

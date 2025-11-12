@@ -10,7 +10,11 @@ dotenv.config();
 const SECRET = process.env.QR_SECRET;
 if (!SECRET) throw new Error("Missing QR_SECRET in .env");
 
-exports.makeToken = async (request) => {
+/**
+ * Cloud Function to regenerate expired or invalid QR tokens for a booking.
+ * This will override the existing tokens with new ones.
+ */
+exports.regenerateToken = async (request) => {
   const auth = request.auth;
   const { userId, assetId, bookingId } = request.data;
 
@@ -25,7 +29,6 @@ exports.makeToken = async (request) => {
   // Firestore references
   const userBookingRef = admin.firestore().doc(`users/${userId}/bookings/${bookingId}`);
   const assetBookingRef = admin.firestore().doc(`assets/${assetId}/bookings/${bookingId}`);
-
   const bookingSnap = await assetBookingRef.get();
 
   if (!bookingSnap.exists) {
@@ -39,7 +42,7 @@ exports.makeToken = async (request) => {
     throw new functions.https.HttpsError("failed-precondition", "Booking has no dates");
   }
 
-  // Get first and last booking dates
+  // Extract start and end of booking
   const firstDate = bookedDates[0].toDate ? bookedDates[0].toDate() : new Date(bookedDates[0]);
   const lastDate = bookedDates[bookedDates.length - 1].toDate
     ? bookedDates[bookedDates.length - 1].toDate()
@@ -47,51 +50,49 @@ exports.makeToken = async (request) => {
 
   const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
 
-  // Calculate expiries based on booked dates + 3 days
   const handoverExpiry = new Date(lastDate.getTime());
   const returnExpiry = new Date(lastDate.getTime() + threeDaysMs);
 
-  // Generate distinct tokens
-  const handoverUuid = uuidv4();
-  const returnUuid = uuidv4();
+  // Generate new UUIDs and tokens
+  const newHandoverUuid = uuidv4();
+  const newReturnUuid = uuidv4();
 
-  const handoverToken = createSignedToken({
+  const newHandoverToken = createSignedToken({
     bookingId,
     userId,
     assetId,
     action: "handover",
-    uuid: handoverUuid,
+    uuid: newHandoverUuid,
     expiresAt: handoverExpiry.getTime(),
   });
 
-  const returnToken = createSignedToken({
+  const newReturnToken = createSignedToken({
     bookingId,
     userId,
     assetId,
     action: "return",
-    uuid: returnUuid,
+    uuid: newReturnUuid,
     expiresAt: returnExpiry.getTime(),
   });
 
   // Prepare Firestore update data
   const updateData = {
     tokens: {
-      handoverToken,
-      returnToken,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      handoverExpiry: admin.firestore.Timestamp.fromDate(handoverExpiry),
-      returnExpiry: admin.firestore.Timestamp.fromDate(returnExpiry),
+      handoverToken: newHandoverToken,
+      returnToken: newReturnToken,
+      regeneratedAt: admin.firestore.FieldValue.serverTimestamp(),
     },
   };
 
-  // Update both booking docs
+  // Update both booking documents
   await Promise.all([userBookingRef.update(updateData), assetBookingRef.update(updateData)]);
 
   return {
     success: true,
+    message: "QR tokens regenerated successfully",
     tokens: {
-      handover: handoverToken,
-      return: returnToken,
+      handover: newHandoverToken,
+      return: newReturnToken,
     },
     expiries: {
       handover: handoverExpiry.toISOString(),
