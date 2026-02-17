@@ -2,6 +2,8 @@ const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const crypto = require("crypto");
 const dotenv = require("dotenv");
+const { sendSystemChatMessage } = require("../utils/chat.util"); // Import the chat utility
+const { log } = require("firebase-functions/logger");
 
 dotenv.config();
 
@@ -56,6 +58,9 @@ exports.verifyAndMark = async (request) => {
   const userBookingRef = admin.firestore().doc(`users/${userId}/bookings/${bookingId}`);
   const assetBookingRef = admin.firestore().doc(`assets/${assetId}/bookings/${bookingId}`);
 
+  let chatID = null;
+  let ownerID = null;
+
   // --- Run transaction ---
   await admin.firestore().runTransaction(async (tx) => {
     const [userSnap, assetSnap] = await Promise.all([tx.get(userBookingRef), tx.get(assetBookingRef)]);
@@ -72,6 +77,10 @@ exports.verifyAndMark = async (request) => {
       throw new functions.https.HttpsError("not-found", "No tokens found in booking");
     }
 
+    // Retrieve chatID and ownerID for sending system message
+    chatID = userBooking.chatId;
+    ownerID = userBooking.asset.owner.uid;
+
     // --- Validate the UUID matches ---
     // if (tokens[`${action}Token`].uuid !== uuid) {
     //   throw new functions.https.HttpsError("permission-denied", "Invalid token UUID");
@@ -85,8 +94,7 @@ exports.verifyAndMark = async (request) => {
       throw new functions.https.HttpsError("failed-precondition", `Booking already marked as ${action}`);
     }
 
-    // FIXME
-    const now = admin.firestore.FieldValue.serverTimestamp() || admin.firestore.Timestamp.now();
+    const now = admin.firestore.FieldValue?.serverTimestamp() || new Date();
 
     // --- Update both booking documents ---
     const updateData = {
@@ -111,6 +119,18 @@ exports.verifyAndMark = async (request) => {
     tx.set(userBookingRef.collection("events").doc(), event);
     tx.set(assetBookingRef.collection("events").doc(), event);
   });
+
+  // Send rating message if the action was 'returned'
+  if (action === "return") {
+    await sendSystemChatMessage({
+      chatId: chatID,
+      ownerId: ownerID,
+      renterId: userId,
+      messageText: "You can now rate your experience with this booking!",
+      messageType: "rating",
+      includeOwner: false,
+    });
+  }
 
   return {
     success: true,

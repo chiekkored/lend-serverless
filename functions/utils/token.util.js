@@ -1,6 +1,15 @@
-// Helper to create signed token
+const crypto = require("crypto");
+
+const SECRET = process.env.QR_SECRET;
+
 exports.createSignedToken = (payload) => {
-  const payloadB64 = Buffer.from(JSON.stringify(payload)).toString("base64");
-  const sig = crypto.createHmac("sha256", SECRET).update(payloadB64).digest("hex");
-  return `${payloadB64}.${sig}`;
+  try {
+    const payloadB64 = Buffer.from(JSON.stringify(payload)).toString("base64");
+    const sig = crypto.createHmac("sha256", SECRET).update(payloadB64).digest("hex");
+
+    return `${payloadB64}.${sig}`;
+  } catch (error) {
+    console.error("Failed to create signed token:", err);
+    throw new functions.https.HttpsError("internal", "Failed to generate signed token", err.message);
+  }
 };

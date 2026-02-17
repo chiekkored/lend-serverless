@@ -78,9 +78,9 @@ exports.makeToken = async (request) => {
     tokens: {
       handoverToken,
       returnToken,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      handoverExpiry: admin.firestore.Timestamp.fromDate(handoverExpiry),
-      returnExpiry: admin.firestore.Timestamp.fromDate(returnExpiry),
+      createdAt: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),
+      handoverExpiry: admin.firestore?.Timestamp?.fromDate(handoverExpiry) || handoverExpiry,
+      returnExpiry: admin.firestore?.Timestamp?.fromDate(returnExpiry) || returnExpiry,
     },
   };
 

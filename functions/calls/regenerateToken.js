@@ -80,7 +80,7 @@ exports.regenerateToken = async (request) => {
     tokens: {
       handoverToken: newHandoverToken,
       returnToken: newReturnToken,
-      regeneratedAt: admin.firestore.FieldValue.serverTimestamp(),
+      regeneratedAt: admin.firestore?.FieldValue.serverTimestamp() || new Date(),
     },
   };
 
