@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const dotenv = require("dotenv");
 const { v4: uuidv4 } = require("uuid");
 const { createSignedToken } = require("../utils/token.util");
+const { throwAndLogHttpsError } = require("../utils/error.util");
 
 dotenv.config();
 
@@ -19,11 +20,11 @@ exports.regenerateToken = async (request) => {
   const { userId, assetId, bookingId } = request.data;
 
   if (!auth) {
-    throw new functions.https.HttpsError("permission-denied", "User must be authenticated");
+    throwAndLogHttpsError("permission-denied", "User must be authenticated");
   }
 
   if (!userId || !assetId || !bookingId) {
-    throw new functions.https.HttpsError("invalid-argument", "Missing userId, assetId, or bookingId");
+    throwAndLogHttpsError("invalid-argument", "Missing userId, assetId, or bookingId");
   }
 
   // Firestore references
@@ -32,14 +33,14 @@ exports.regenerateToken = async (request) => {
   const bookingSnap = await assetBookingRef.get();
 
   if (!bookingSnap.exists) {
-    throw new functions.https.HttpsError("not-found", "Booking not found");
+    throwAndLogHttpsError("not-found", "Booking not found");
   }
 
   const booking = bookingSnap.data();
   const bookedDates = booking?.dates ?? [];
 
   if (bookedDates.length === 0) {
-    throw new functions.https.HttpsError("failed-precondition", "Booking has no dates");
+    throwAndLogHttpsError("failed-precondition", "Booking has no dates");
   }
 
   // Extract start and end of booking

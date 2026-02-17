@@ -3,7 +3,7 @@ const admin = require("firebase-admin");
 const crypto = require("crypto");
 const dotenv = require("dotenv");
 const { sendSystemChatMessage } = require("../utils/chat.util"); // Import the chat utility
-const { log } = require("firebase-functions/logger");
+const { throwAndLogHttpsError } = require("../utils/error.util"); // Import the error utility
 
 dotenv.config();
 
@@ -15,23 +15,23 @@ exports.verifyAndMark = async (request) => {
   const auth = request.auth;
 
   if (!auth) {
-    throw new functions.https.HttpsError("permission-denied", "User must be authenticated");
+    throwAndLogHttpsError("permission-denied", "User must be authenticated");
   }
 
   if (!token) {
-    throw new functions.https.HttpsError("invalid-argument", "Token is required");
+    throwAndLogHttpsError("invalid-argument", "Token is required");
   }
 
   // --- Decode and verify token ---
   const [payloadB64, sig] = token.split(".");
   if (!payloadB64 || !sig) {
-    throw new functions.https.HttpsError("invalid-argument", "Malformed token");
+    throwAndLogHttpsError("invalid-argument", "Malformed token");
   }
 
   // Recreate the expected signature using HMAC and compare with the provided signature
   const expectedSig = crypto.createHmac("sha256", SECRET).update(payloadB64).digest("hex");
   if (expectedSig !== sig) {
-    throw new functions.https.HttpsError("permission-denied", "Invalid token signature");
+    throwAndLogHttpsError("permission-denied", "Invalid token signature");
   }
 
   // Parse payload
@@ -39,19 +39,19 @@ exports.verifyAndMark = async (request) => {
   try {
     payload = JSON.parse(Buffer.from(payloadB64, "base64").toString());
   } catch (error) {
-    throw new functions.https.HttpsError("invalid-argument", "Invalid token payload");
+    throwAndLogHttpsError("invalid-argument", "Invalid token payload", error);
   }
 
   const { bookingId, userId, assetId, action, uuid, expiresAt } = payload;
 
   if (!bookingId || !userId || !assetId || !action || !uuid) {
-    throw new functions.https.HttpsError("invalid-argument", "Invalid token payload");
+    throwAndLogHttpsError("invalid-argument", "Invalid token payload");
   }
 
   // --- Check token expiry ---
   const now = Date.now();
   if (expiresAt && now > expiresAt) {
-    throw new functions.https.HttpsError("deadline-exceeded", "QR token expired");
+    throwAndLogHttpsError("deadline-exceeded", "QR token expired");
   }
 
   // --- Firestore references ---
@@ -66,7 +66,7 @@ exports.verifyAndMark = async (request) => {
     const [userSnap, assetSnap] = await Promise.all([tx.get(userBookingRef), tx.get(assetBookingRef)]);
 
     if (!userSnap.exists || !assetSnap.exists) {
-      throw new functions.https.HttpsError("not-found", "Booking not found");
+      throwAndLogHttpsError("not-found", "Booking not found");
     }
 
     const userBooking = userSnap.data();
@@ -74,7 +74,7 @@ exports.verifyAndMark = async (request) => {
     const tokens = userBooking?.tokens || assetBooking?.tokens;
 
     if (!tokens) {
-      throw new functions.https.HttpsError("not-found", "No tokens found in booking");
+      throwAndLogHttpsError("not-found", "No tokens found in booking");
     }
 
     // Retrieve chatID and ownerID for sending system message
@@ -83,7 +83,7 @@ exports.verifyAndMark = async (request) => {
 
     // --- Validate the UUID matches ---
     // if (tokens[`${action}Token`].uuid !== uuid) {
-    //   throw new functions.https.HttpsError("permission-denied", "Invalid token UUID");
+    //   throwAndLogHttpsError("permission-denied", "Invalid token UUID");
     // }
 
     // --- Check if already marked ---
@@ -91,7 +91,7 @@ exports.verifyAndMark = async (request) => {
     const existing = userBooking?.[fieldName]?.status || assetBooking?.[fieldName]?.status;
 
     if (existing) {
-      throw new functions.https.HttpsError("failed-precondition", `Booking already marked as ${action}`);
+      throwAndLogHttpsError("failed-precondition", `Booking already marked as ${action}`);
     }
 
     const now = admin.firestore.FieldValue?.serverTimestamp() || new Date();
@@ -120,15 +120,19 @@ exports.verifyAndMark = async (request) => {
     tx.set(assetBookingRef.collection("events").doc(), event);
   });
 
-  // Send rating message if the action was 'returned'
+  // Send rating message if the action was 'return'
   if (action === "return") {
+    const messageText = JSON.stringify({
+      assetId: assetId,
+      bookingId: bookingId,
+      renterId: userId, // userId from payload is the renter's ID
+    });
     await sendSystemChatMessage({
       chatId: chatID,
       ownerId: ownerID,
       renterId: userId,
-      messageText: "You can now rate your experience with this booking!",
-      messageType: "rating",
-      includeOwner: false,
+      messageText: messageText,
+      messageType: "rating", // Corresponds to MessageType.rating in Flutter
     });
   }
 
