@@ -120,19 +120,41 @@ exports.verifyAndMark = async (request) => {
     tx.set(assetBookingRef.collection("events").doc(), event);
   });
 
-  // Send rating message if the action was 'return'
-  if (action === "return") {
-    const messageText = JSON.stringify({
-      assetId: assetId,
-      bookingId: bookingId,
-      renterId: userId, // userId from payload is the renter's ID
-    });
+  let systemMessageText = "";
+  if (action === "handover") {
+    systemMessageText = "Unit has been handed over!";
+  } else if (action === "return") {
+    systemMessageText = "Unit has been returned!";
+  }
+
+  // Send system chat message for handover/return
+  if (systemMessageText) {
     await sendSystemChatMessage({
       chatId: chatID,
       ownerId: ownerID,
       renterId: userId,
-      messageText: messageText,
-      messageType: "rating", // Corresponds to MessageType.rating in Flutter
+      messageText: systemMessageText,
+      messageType: "system", // MessageType.system for general updates
+      includeLastMessage: false,
+    });
+  }
+
+  // After 'return' action, send rating message to renter and archive owner's chat
+  if (action === "return") {
+    await sendSystemChatMessage({
+      chatId: chatID,
+      ownerId: ownerID,
+      renterId: userId,
+      messageText: "You can now rate your experience with this booking!",
+      messageType: "rating",
+      includeOwner: false,
+    });
+
+    // Archive owner's chat
+    const ownerUserChatRef = admin.firestore().collection("userChats").doc(ownerID).collection("chats").doc(chatID);
+
+    await admin.firestore().runTransaction(async (tx) => {
+      tx.update(ownerUserChatRef, { status: "archived" }); // Ensure status string matches Flutter enum
     });
   }
 

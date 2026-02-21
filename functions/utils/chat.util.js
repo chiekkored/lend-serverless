@@ -6,6 +6,7 @@ exports.sendSystemChatMessage = async ({
   renterId,
   messageText,
   messageType,
+  includeLastMessage = true,
   includeOwner = true,
   includeRenter = true,
 }) => {
