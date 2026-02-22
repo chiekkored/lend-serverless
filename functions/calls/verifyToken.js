@@ -67,6 +67,15 @@ exports.verifyToken = async (request) => {
   }
 
   const booking = bookingSnap.data();
+
+  // --- Guard conditions for already completed actions ---
+  if (action === "handover" && booking.handoverAt) {
+    throwAndLogHttpsError("already-exists", "Handover already completed for this booking");
+  }
+  if (action === "return" && booking.returnedAt) {
+    throwAndLogHttpsError("already-exists", "Return already completed for this booking");
+  }
+
   const tokens = booking?.tokens;
   if (!tokens) {
     throwAndLogHttpsError("not-found", "No tokens found in booking");
