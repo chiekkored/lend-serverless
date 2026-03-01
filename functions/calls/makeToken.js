@@ -34,23 +34,24 @@ exports.makeToken = async (request) => {
   }
 
   const booking = bookingSnap.data();
-  const bookedDates = booking?.dates ?? [];
 
-  if (bookedDates.length === 0) {
-    throwAndLogHttpsError("failed-precondition", "Booking has no dates");
+  // NEW: Use startDate/endDate instead of deprecated dates array
+  const startDate = booking?.startDate?.toDate?.() || booking?.startDate;
+  const endDate = booking?.endDate?.toDate?.() || booking?.endDate;
+
+  if (!startDate || !endDate) {
+    throwAndLogHttpsError(
+      "failed-precondition",
+      "Booking must have startDate and endDate"
+    );
   }
 
-  // Get first and last booking dates
-  const firstDate = bookedDates[0].toDate ? bookedDates[0].toDate() : new Date(bookedDates[0]);
-  const lastDate = bookedDates[bookedDates.length - 1].toDate
-    ? bookedDates[bookedDates.length - 1].toDate()
-    : new Date(bookedDates[bookedDates.length - 1]);
-
+  // Calculate token expiry: 3 days from now (default) or endDate + 3 days
   const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
 
   // Calculate expiries based on booked dates + 3 days
-  const handoverExpiry = new Date(lastDate.getTime());
-  const returnExpiry = new Date(lastDate.getTime() + threeDaysMs);
+  const handoverExpiry = new Date(endDate.getTime());
+  const returnExpiry = new Date(endDate.getTime() + threeDaysMs);
 
   // Generate distinct tokens
   const handoverUuid = uuidv4();

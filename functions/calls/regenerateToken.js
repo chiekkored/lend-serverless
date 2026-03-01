@@ -37,22 +37,22 @@ exports.regenerateToken = async (request) => {
   }
 
   const booking = bookingSnap.data();
-  const bookedDates = booking?.dates ?? [];
 
-  if (bookedDates.length === 0) {
-    throwAndLogHttpsError("failed-precondition", "Booking has no dates");
+  // NEW: Use startDate/endDate instead of deprecated dates array
+  const startDate = booking?.startDate?.toDate?.() || booking?.startDate;
+  const endDate = booking?.endDate?.toDate?.() || booking?.endDate;
+
+  if (!startDate || !endDate) {
+    throwAndLogHttpsError(
+      "failed-precondition",
+      "Booking must have startDate and endDate"
+    );
   }
 
   // Extract start and end of booking
-  const firstDate = bookedDates[0].toDate ? bookedDates[0].toDate() : new Date(bookedDates[0]);
-  const lastDate = bookedDates[bookedDates.length - 1].toDate
-    ? bookedDates[bookedDates.length - 1].toDate()
-    : new Date(bookedDates[bookedDates.length - 1]);
-
   const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
-
-  const handoverExpiry = new Date(lastDate.getTime());
-  const returnExpiry = new Date(lastDate.getTime() + threeDaysMs);
+  const handoverExpiry = new Date(endDate.getTime());
+  const returnExpiry = new Date(endDate.getTime() + threeDaysMs);
 
   // Generate new UUIDs and tokens
   const newHandoverUuid = uuidv4();
