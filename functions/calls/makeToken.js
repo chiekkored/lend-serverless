@@ -85,8 +85,20 @@ exports.makeToken = async (request) => {
     },
   };
 
-  // Update both booking docs
-  await Promise.all([userBookingRef.update(updateData), assetBookingRef.update(updateData)]);
+  // SAFE: Atomic transaction - both updates or neither
+  await admin.firestore().runTransaction(async (transaction) => {
+    // Verify both documents exist before updating
+    const userBookingSnap = await transaction.get(userBookingRef);
+    const assetBookingSnap = await transaction.get(assetBookingRef);
+
+    if (!userBookingSnap.exists || !assetBookingSnap.exists) {
+      throw new Error("Booking documents not found");
+    }
+
+    // Update both atomically
+    transaction.update(userBookingRef, updateData);
+    transaction.update(assetBookingRef, updateData);
+  });
 
   return {
     success: true,

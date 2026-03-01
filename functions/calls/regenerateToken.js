@@ -85,8 +85,25 @@ exports.regenerateToken = async (request) => {
     },
   };
 
-  // Update both booking documents
-  await Promise.all([userBookingRef.update(updateData), assetBookingRef.update(updateData)]);
+  // SAFE: Atomic transaction - both updates or neither
+  await admin.firestore().runTransaction(async (transaction) => {
+    // Verify both documents exist before updating
+    const userBookingSnap = await transaction.get(userBookingRef);
+    const assetBookingSnap = await transaction.get(assetBookingRef);
+
+    if (!userBookingSnap.exists || !assetBookingSnap.exists) {
+      throw new Error("Booking documents not found");
+    }
+
+    // Check if booking is already returned (prevent double-regeneration)
+    if (userBookingSnap.data().returned?.status === true) {
+      throw new Error("Booking already returned. Cannot regenerate token.");
+    }
+
+    // Update both atomically
+    transaction.update(userBookingRef, updateData);
+    transaction.update(assetBookingRef, updateData);
+  });
 
   return {
     success: true,

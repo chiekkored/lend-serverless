@@ -4,6 +4,7 @@ const { makeToken } = require("./calls/makeToken.js");
 const { verifyAndMark } = require("./calls/verifyAndMark.js");
 const { regenerateToken } = require("./calls/regenerateToken.js");
 const { verifyToken } = require("./calls/verifyToken.js");
+const { syncUserMetadata } = require("./scheduled/syncUserMetadata.js");
 
 // Initialize Firebase Admin SDK only once
 admin.initializeApp({
@@ -15,3 +16,6 @@ exports.makeToken = functions.https.onCall(makeToken);
 exports.verifyAndMark = functions.https.onCall(verifyAndMark);
 exports.regenerateToken = functions.https.onCall(regenerateToken);
 exports.verifyToken = functions.https.onCall(verifyToken);
+
+// Export scheduled functions
+exports.syncUserMetadata = syncUserMetadata;
