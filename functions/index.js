@@ -24,4 +24,4 @@ exports.confirmBooking = functions.https.onCall(confirmBooking);
 exports.declineOverlappingBookings = declineOverlappingBookings;
 
 // Export scheduled functions
-exports.syncUserMetadata = syncUserMetadata;
+// exports.syncUserMetadata = syncUserMetadata;

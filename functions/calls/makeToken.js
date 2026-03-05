@@ -40,10 +40,7 @@ exports.makeToken = async (request) => {
   const endDate = booking?.endDate?.toDate?.() || booking?.endDate;
 
   if (!startDate || !endDate) {
-    throwAndLogHttpsError(
-      "failed-precondition",
-      "Booking must have startDate and endDate"
-    );
+    throwAndLogHttpsError("failed-precondition", "Booking must have startDate and endDate");
   }
 
   // Calculate token expiry: 3 days from now (default) or endDate + 3 days

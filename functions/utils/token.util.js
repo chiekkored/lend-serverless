@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const functions = require("firebase-functions");
 
 const SECRET = process.env.QR_SECRET;
 
@@ -9,7 +10,7 @@ exports.createSignedToken = (payload) => {
 
     return `${payloadB64}.${sig}`;
   } catch (error) {
-    console.error("Failed to create signed token:", err);
-    throw new functions.https.HttpsError("internal", "Failed to generate signed token", err.message);
+    console.error("Failed to create signed token:", error);
+    throw new functions.https.HttpsError("internal", "Failed to generate signed token", error.message);
   }
 };

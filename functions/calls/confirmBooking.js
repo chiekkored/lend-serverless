@@ -147,7 +147,7 @@ async function enqueueDeclineTask({ assetId, selectedBookingId, startDate, endDa
     const cloudTasks = require("@google-cloud/tasks");
     const client = new cloudTasks.CloudTasksClient();
 
-    const project = process.env.GCP_PROJECT || "lend-project"; // Set via environment
+    const project = process.env.GCP_PROJECT;
     const queue = "decline-overlapping-bookings";
     const location = "us-central1";
 
