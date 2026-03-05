@@ -15,7 +15,10 @@ const { throwAndLogHttpsError } = require("../utils/error.util");
  *
  * Requires: Cloud Tasks API enabled + queue "decline-overlapping-bookings" created
  */
-exports.confirmBooking = functions.https.onCall(async (data, context) => {
+exports.confirmBooking = async (request) => {
+  const data = request.data;
+  const context = { auth: request.auth };
+
   const db = admin.firestore();
   const { bookingId, assetId, renterId } = data;
 
@@ -48,12 +51,12 @@ exports.confirmBooking = functions.https.onCall(async (data, context) => {
       // Confirm selected booking
       transaction.update(selectedBookingRef, {
         status: "Confirmed",
-        lastUpdated: admin.firestore?.FieldValue.serverTimestamp() || new Date(),
+        lastUpdated: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),
       });
 
       transaction.update(userBookingRef, {
         status: "Confirmed",
-        lastUpdated: admin.firestore?.FieldValue.serverTimestamp() || new Date(),
+        lastUpdated: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),
       });
 
       // --- SEND CONFIRMATION MESSAGE (Critical UX feature) ---
@@ -69,7 +72,7 @@ exports.confirmBooking = functions.https.onCall(async (data, context) => {
           id: messageRef.id,
           text: messageText,
           senderId: "", // System message
-          createdAt: admin.firestore?.FieldValue.serverTimestamp() || new Date(),
+          createdAt: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),
           type: "system",
         });
 
@@ -78,7 +81,7 @@ exports.confirmBooking = functions.https.onCall(async (data, context) => {
 
         transaction.update(renterUserChatRef, {
           lastMessage: messageText,
-          lastMessageDate: admin.firestore?.FieldValue.serverTimestamp() || new Date(),
+          lastMessageDate: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),
           lastMessageSenderId: "", // System message indicator
         });
 
@@ -90,7 +93,7 @@ exports.confirmBooking = functions.https.onCall(async (data, context) => {
 
         transaction.update(ownerUserChatRef, {
           lastMessage: messageText,
-          lastMessageDate: admin.firestore?.FieldValue.serverTimestamp() || new Date(),
+          lastMessageDate: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),
           lastMessageSenderId: "", // System message indicator
         });
       }
@@ -134,7 +137,7 @@ exports.confirmBooking = functions.https.onCall(async (data, context) => {
     console.error(`[confirmBooking] Error: ${error.message}`);
     throwAndLogHttpsError("internal", error.message);
   }
-});
+};
 
 /**
  * Helper: Enqueue Cloud Task to decline overlapping bookings

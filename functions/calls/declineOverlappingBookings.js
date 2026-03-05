@@ -133,19 +133,19 @@ async function declineBooking({ assetId, bookingId, renterId, chatId }) {
       // Decline booking in asset collection
       batch.update(assetBookingRef, {
         status: "Declined",
-        lastUpdated: admin.firestore?.FieldValue.serverTimestamp() || new Date(),
+        lastUpdated: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),
       });
 
       // Decline booking in user collection
       batch.update(userBookingRef, {
         status: "Declined",
-        lastUpdated: admin.firestore?.FieldValue.serverTimestamp() || new Date(),
+        lastUpdated: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),
       });
 
       // Archive chat
       batch.update(chatRef, {
         status: "Archived",
-        lastUpdated: admin.firestore?.FieldValue.serverTimestamp() || new Date(),
+        lastUpdated: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),
       });
 
       await batch.commit();
