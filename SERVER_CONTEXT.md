@@ -42,6 +42,8 @@ The code shows a backend that is directionally correct in one important way: cri
 - `GCP_PROJECT` is required indirectly for Cloud Tasks enqueue URL/path generation in [`functions/calls/confirmBooking.js`](/Users/chiekkoredalino/Projects/Flutter Projects/lend-serverless/functions/calls/confirmBooking.js:148)
 - Functions call `dotenv.config()`, implying local `.env` usage; no production config strategy is documented
 - VS Code launch configs now exist for local emulator running and deploy-oriented production workflows in both the serverless repo and the shared workspace root
+- Local emulator startup is standardized on `nvm use 20` plus Firebase import/export persistence via `emulator-data`
+- The full local emulator stack requires Java 21+ because the current `firebase-tools` version will not run the Firestore emulator on older Java releases
 
 ### Active vs Inactive Backend Surface
 
@@ -197,8 +199,8 @@ Purpose:
 
 Observed behavior:
 
-- Always updates `lastMessage` metadata when the included side is enabled
-- The `includeLastMessage` argument is unused
+- Updates `lastMessage` metadata only for the included side(s)
+- Supports suppressing last-message updates when the caller passes `includeLastMessage: false`
 
 ### `throwAndLogHttpsError`
 
@@ -284,8 +286,8 @@ Strength:
 
 Weakness:
 
-- Authorization is missing, so any authenticated user who knows identifiers can call it
 - The overlap cleanup phase is not part of the same consistency boundary
+- The async phase still needs emulator-backed coverage so authorization, retries, and mirror updates do not regress
 
 ### Overlap Prevention Model
 
@@ -296,20 +298,13 @@ The intended model is:
 
 This is a reasonable scaling direction in principle. Large overlap fanout should not live inside the same Firestore transaction as the chosen confirmation.
 
-But the current implementation fails operationally:
+The payload-contract bug between `confirmBooking` and `declineOverlappingBookings` has been fixed. The task now accepts the raw JSON payload that `confirmBooking` enqueues, and production requests are guarded with Cloud Tasks OIDC verification.
 
-1. `confirmBooking` sends a raw JSON body in the Cloud Task request in [`functions/calls/confirmBooking.js`](/Users/chiekkoredalino/Projects/Flutter Projects/lend-serverless/functions/calls/confirmBooking.js:159)
-2. `declineOverlappingBookings` expects `request.body.message.data`, which is a Pub/Sub push envelope, not a raw Cloud Tasks HTTP payload, in [`functions/calls/declineOverlappingBookings.js`](/Users/chiekkoredalino/Projects/Flutter Projects/lend-serverless/functions/calls/declineOverlappingBookings.js:25)
-3. Result: the task handler will treat valid task requests as malformed and return `400 No message`
+Remaining operational risk:
 
-Impact:
-
-- the chosen booking becomes `"Confirmed"`
-- overlapping pending bookings remain pending
-- the inventory can still look available to other pending flows
-- manual cleanup is required
-
-This is the single biggest integrity bug in the booking engine.
+- overlap cleanup still happens outside the confirmation transaction
+- task failures still need emulator-backed coverage and clearer operational reporting
+- decline side effects are still intentionally narrower than confirmation side effects
 
 ### Status Lifecycle Actually Implemented
 

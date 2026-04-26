@@ -4,7 +4,7 @@
     {
       "label": "firebase: emulators",
       "type": "shell",
-      "command": "zsh -lc 'source ~/.nvm/nvm.sh && nvm use 20 && firebase emulators:start --import=./emulator-data --export-on-exit=./emulator-data'",
+      "command": "zsh -lc 'source ~/.nvm/nvm.sh && nvm use 20 && java_major=$(java -version 2>&1 | sed -nE \"1s/.*version \\\"([0-9]+).*/\\1/p\") && [ -n \"$java_major\" ] || { echo \"Java runtime not found. Install Java 21+ to run the Firestore emulator.\"; exit 1; }; [ \"$java_major\" -ge 21 ] || { echo \"Java 21+ is required to run the Firestore emulator with the current firebase-tools version.\"; exit 1; }; firebase emulators:start --import=./emulator-data --export-on-exit=./emulator-data'",
       "options": {
         "cwd": "${workspaceFolder}"
       },
