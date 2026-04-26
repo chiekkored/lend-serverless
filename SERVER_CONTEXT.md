@@ -55,6 +55,7 @@ Active exports in [`functions/index.js`](/Users/chiekkoredalino/Projects/Flutter
 - `regenerateToken`
 - `verifyToken`
 - `confirmBooking`
+- `submitBookingReview`
 - `declineOverlappingBookings`
 
 Inactive but present:
@@ -495,7 +496,7 @@ even if enqueue fails, because the return payload is static after the warning pa
 - `verifyAndMark` blocks repeat marking by checking existing boolean status, which is acceptable
 - chat system messages are not deduplicated by business key
 - return flow emits multiple side effects without durable orchestration
-- overlap decline retries are intended to come from Cloud Tasks, but because payload parsing is broken, that safety net is not functioning
+- overlap decline retries depend on Cloud Tasks and still need automated coverage to stay reliable
 
 ### 6. Batch Failure Fragility
 
@@ -577,11 +578,13 @@ The code comments describe a daily metadata sync design, but it is not deployed.
 
 The backend exports only:
 
+- `createBookingRequest`
 - `makeToken`
 - `verifyAndMark`
 - `regenerateToken`
 - `verifyToken`
 - `confirmBooking`
+- `submitBookingReview`
 
 If the mobile app expects backend-authoritative cancellation, payment confirmation, booking completion, admin moderation, or notifications, those functions do not exist in this repository.
 
@@ -592,7 +595,6 @@ If the mobile app expects backend-authoritative cancellation, payment confirmati
 1. Extend automated coverage around the current task, token, and callable authorization contracts.
 2. Keep `verifyAndMark` and `verifyToken` behavior in lockstep whenever token or lifecycle semantics change.
 3. Move the remaining client-side lifecycle mutations behind backend authority.
-   - review/rating closeout is the biggest remaining booking-adjacent write path on mobile
 
 ### Priority 1: Consolidate Booking State Authority
 

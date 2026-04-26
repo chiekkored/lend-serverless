@@ -29,7 +29,8 @@ service cloud.firestore {
         request.resource.data.status == resource.data.status &&
         request.resource.data.tokens == resource.data.tokens &&
         request.resource.data.handedOver == resource.data.handedOver &&
-        request.resource.data.returned == resource.data.returned;
+        request.resource.data.returned == resource.data.returned &&
+        request.resource.data.reviewed == resource.data.reviewed;
     }
 
     function isChatParticipant(chatId) {
@@ -78,8 +79,7 @@ service cloud.firestore {
 
       match /ratings/{ratingId} {
         allow read: if true;
-        allow create: if isSignedIn() &&
-          request.resource.data.userId == request.auth.uid;
+        allow create: if false;
         allow update, delete: if false;
       }
     }
