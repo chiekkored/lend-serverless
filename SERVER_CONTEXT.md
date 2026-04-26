@@ -6,6 +6,7 @@ This repository is a narrow Firebase Cloud Functions backend for critical bookin
 
 The implementation is materially smaller than the intended product scope. There are no payment handlers, admin workflows, fraud modules, HTTP APIs for public clients, or active scheduled jobs in this repo. The real backend surface today is:
 
+- create booking requests
 - confirm a booking
 - generate or regenerate QR tokens
 - verify QR tokens
@@ -45,6 +46,7 @@ The code shows a backend that is directionally correct in one important way: cri
 
 Active exports in [`functions/index.js`](/Users/chiekkoredalino/Projects/Flutter Projects/lend-serverless/functions/index.js:16):
 
+- `createBookingRequest`
 - `makeToken`
 - `verifyAndMark`
 - `regenerateToken`
@@ -57,6 +59,23 @@ Inactive but present:
 - `syncUserMetadata` is imported but not exported; the implementation itself is fully commented out in [`functions/scheduled/syncUserMetadata.js`](/Users/chiekkoredalino/Projects/Flutter Projects/lend-serverless/functions/scheduled/syncUserMetadata.js:13)
 
 ## 3. Function Registry
+
+### `createBookingRequest`
+
+Purpose:
+
+- Creates the initial pending booking request
+- Writes both booking mirrors
+- Creates the shared chat root and first message
+- Creates both `userChats` mirrors
+
+Observed behavior:
+
+- Requires auth and treats `request.auth.uid` as the renter
+- Loads the canonical asset and renter documents before writing
+- Prevents owner self-booking
+- Rejects overlapping confirmed bookings for the requested range
+- Writes the current booking schema with `startDate`, `endDate`, and `numDays`
 
 ### `makeToken`
 
@@ -223,6 +242,7 @@ Reality:
 
 | Function | Reads | Writes |
 |---|---|---|
+| `createBookingRequest` | `assets/{assetId}`, `users/{renterId}`, overlap query on `assets/{assetId}/bookings` | both booking mirrors, `chats/{chatId}`, first message, both `userChats` roots/summaries |
 | `makeToken` | `assets/{assetId}/bookings/{bookingId}` | `users/{userId}/bookings/{bookingId}`, `assets/{assetId}/bookings/{bookingId}` |
 | `regenerateToken` | `assets/{assetId}/bookings/{bookingId}`, both booking copies in transaction | `users/{userId}/bookings/{bookingId}`, `assets/{assetId}/bookings/{bookingId}` |
 | `verifyToken` | `assets/{assetId}/bookings/{bookingId}` | none |
@@ -356,7 +376,7 @@ This is good. It prevents stale or replaced tokens from passing validation.
 
 #### `verifyAndMark`
 
-This is the weaker mutation path.
+This now tracks the read-only validation path much more closely.
 
 It checks:
 
@@ -367,24 +387,16 @@ It checks:
 - not expired
 - booking exists
 - booking has a `tokens` object
+- full presented token equals the stored Firestore token
+- caller is authorized for the specific QR action
+- booking is in the correct lifecycle state
 - action not already marked
 
-It does **not** check:
+The remaining gap is maintainability: `verifyToken` and `verifyAndMark` still need ongoing lockstep coverage so future token changes do not drift again.
 
-- the full token matches the current Firestore token
-- the UUID matches current booking token state
-- the caller is authorized to perform the action
-- the booking is in the correct lifecycle state for this action
+### Remaining Trust Concern
 
-The UUID verification code is explicitly commented out in [`functions/calls/verifyAndMark.js`](/Users/chiekkoredalino/Projects/Flutter Projects/lend-serverless/functions/calls/verifyAndMark.js:84).
-
-### Critical Trust Problem
-
-The read-only token validation function is stricter than the state-mutating verification function.
-
-That is backwards.
-
-A validly signed but outdated token can fail `verifyToken` and still pass `verifyAndMark` if its payload is syntactically valid and not expired. That means rotate/regenerate semantics are not reliably enforced on the mutation path.
+The immediate verification gap between `verifyToken` and `verifyAndMark` has been closed, but both paths are still fragile enough that they need automated contract coverage any time token semantics change.
 
 ### Token Expiry Concerns
 
@@ -400,29 +412,16 @@ Using `endDate` for handover expiry is suspicious. Handover usually occurs at or
 
 ## 7. Security Audit
 
-### 1. Authorization Is Largely Missing
+### 1. Authorization Exists but Needs Coverage
 
-All active callables only check `request.auth`, not caller entitlement.
+The main callables now enforce participant or owner checks, and QR verification is action-scoped.
 
-Examples:
+Remaining risk:
+- those guarantees need emulator or function-level coverage so future edits do not silently weaken them
 
-- `confirmBooking` does not verify the caller owns the asset or has an admin role
-- `makeToken` does not verify the caller is the booking renter, owner, or system actor
-- `regenerateToken` does not verify booking participant or owner
-- `verifyAndMark` does not verify who is allowed to mark handover or return
-- `verifyToken` reveals booking-linked token validity to any authenticated caller holding a token
+### 2. Caller-Controlled Identifiers Still Need Ongoing Validation
 
-This means identity is authenticated, but authority is not enforced.
-
-### 2. Caller-Controlled Identifiers Are Trusted
-
-Multiple functions accept `userId`, `assetId`, `renterId`, `bookingId` directly from the client and interpolate them into Firestore paths without cross-checking against `auth.uid`.
-
-That is an abuse vector for:
-
-- generating tokens for someone else’s booking
-- confirming someone else’s booking
-- reading booking-token validity on bookings unrelated to the caller
+Critical paths now cross-check caller identity against booking or asset state, but the codebase still accepts multiple client-provided identifiers and therefore remains sensitive to any future missed validation path.
 
 ### 3. HTTP Task Endpoint Is Not Authenticated
 
@@ -455,25 +454,24 @@ There is no evidence of:
 
 ## 8. Reliability Audit
 
-### 1. Broken Cloud Tasks Contract
+### 1. Cloud Tasks Contract Is Fixed but Under-Tested
 
-This is the top reliability issue.
+The payload shape and handler contract now align, and production requests require OIDC.
 
-Enqueued payload shape does not match handler expectations. Overlap cleanup is therefore likely dead on arrival.
+Remaining risk:
+- there is still no automated coverage proving the enqueue path, OIDC assumptions, and overlap cleanup behavior stay aligned
 
-### 2. Inconsistent State Schema
+### 2. State Schema Still Needs Centralization
 
-`verifyAndMark` writes:
+The immediate `verifyToken` versus `verifyAndMark` field drift has been corrected, but booking lifecycle state is still spread across:
 
-- `handedOver.status`
-- `returned.status`
+- `status`
+- `tokens`
+- `handedOver`
+- `returned`
+- `reviewed`
 
-But `verifyToken` checks:
-
-- `booking.handoverAt`
-- `booking.returnedAt`
-
-So the verification function can report a token as valid even after `verifyAndMark` already completed that action, depending on actual stored fields.
+That still argues for a more explicit lifecycle contract.
 
 ### 3. Partial Side-Effect Failures After Booking Mutation
 
@@ -597,7 +595,8 @@ If the mobile app expects backend-authoritative cancellation, payment confirmati
 
 1. Extend automated coverage around the current task, token, and callable authorization contracts.
 2. Keep `verifyAndMark` and `verifyToken` behavior in lockstep whenever token or lifecycle semantics change.
-3. Audit every remaining client-side lifecycle mutation and move it behind backend authority.
+3. Move the remaining client-side lifecycle mutations behind backend authority.
+   - review/rating closeout is the biggest remaining booking-adjacent write path on mobile
 
 ### Priority 1: Consolidate Booking State Authority
 

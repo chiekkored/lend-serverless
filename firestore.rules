@@ -52,9 +52,7 @@ service cloud.firestore {
 
       match /bookings/{bookingId} {
         allow read: if bookingParticipants(resource.data);
-        allow create: if isSelf(uid) &&
-          request.resource.data.renter.uid == request.auth.uid &&
-          request.resource.data.status == 'Pending';
+        allow create: if false;
         allow update: if isSelf(uid) && bookingIdentityUnchanged();
         allow delete: if false;
 
@@ -74,9 +72,7 @@ service cloud.firestore {
 
       match /bookings/{bookingId} {
         allow read: if bookingParticipants(resource.data);
-        allow create: if isSignedIn() &&
-          request.resource.data.renter.uid == request.auth.uid &&
-          request.resource.data.status == 'Pending';
+        allow create: if false;
         allow update, delete: if false;
       }
 
@@ -90,17 +86,12 @@ service cloud.firestore {
 
     match /chats/{chatId} {
       allow read: if isChatParticipant(chatId);
-      allow create: if isSignedIn() &&
-        request.resource.data.chatType == 'Private';
+      allow create: if false;
       allow update, delete: if false;
 
       match /messages/{messageId} {
         allow read: if isChatParticipant(chatId);
-        allow create: if isSignedIn() &&
-          (
-            isChatParticipant(chatId) ||
-            request.resource.data.senderId == request.auth.uid
-          );
+        allow create: if isSignedIn() && isChatParticipant(chatId);
         allow update, delete: if false;
       }
     }
@@ -114,9 +105,7 @@ service cloud.firestore {
 
       match /chats/{chatId} {
         allow read: if isSelf(uid);
-        allow create: if isSignedIn() &&
-          (request.resource.data.renterId == request.auth.uid ||
-            request.resource.data.asset.owner.uid == request.auth.uid);
+        allow create: if false;
         allow update: if isSignedIn() &&
           (isSelf(uid) ||
             request.resource.data.lastMessageSenderId == request.auth.uid);
