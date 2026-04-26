@@ -1,0 +1,26 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Serverless Local Emulators",
+      "type": "node-terminal",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "command": "firebase emulators:start --import=./emulator-data --export-on-exit=./emulator-data"
+    },
+    {
+      "name": "Serverless Deploy Functions",
+      "type": "node-terminal",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "command": "firebase deploy --only functions"
+    },
+    {
+      "name": "Serverless Deploy Rules",
+      "type": "node-terminal",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "command": "firebase deploy --only firestore:rules,storage"
+    }
+  ]
+}

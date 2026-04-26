@@ -2,16 +2,38 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "type": "npm",
-      "script": "deploy",
-      "path": "functions",
+      "label": "firebase: emulators",
+      "type": "shell",
+      "command": "firebase emulators:start --import=./emulator-data --export-on-exit=./emulator-data",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
       "problemMatcher": [],
-      "label": "npm: deploy - functions",
+      "isBackground": true
+    },
+    {
+      "label": "firebase: deploy functions",
+      "type": "shell",
+      "command": "firebase deploy --only functions",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
       "detail": "firebase deploy --only functions",
       "group": {
         "kind": "build",
         "isDefault": true
       }
+    },
+    {
+      "label": "firebase: deploy rules",
+      "type": "shell",
+      "command": "firebase deploy --only firestore:rules,storage",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "detail": "firebase deploy --only firestore:rules,storage"
     }
   ]
 }

@@ -41,6 +41,7 @@ The code shows a backend that is directionally correct in one important way: cri
 - `QR_SECRET` is required at module load time by token-related functions and `token.util`
 - `GCP_PROJECT` is required indirectly for Cloud Tasks enqueue URL/path generation in [`functions/calls/confirmBooking.js`](/Users/chiekkoredalino/Projects/Flutter Projects/lend-serverless/functions/calls/confirmBooking.js:148)
 - Functions call `dotenv.config()`, implying local `.env` usage; no production config strategy is documented
+- VS Code launch configs now exist for local emulator running and deploy-oriented production workflows in both the serverless repo and the shared workspace root
 
 ### Active vs Inactive Backend Surface
 
