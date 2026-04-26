@@ -1,15 +1,15 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
-const crypto = require("crypto");
 const dotenv = require("dotenv");
-const { v4: uuidv4 } = require("uuid");
-const { createSignedToken } = require("../utils/token.util");
 const { throwAndLogHttpsError } = require("../utils/error.util");
+const {
+  getBookingRefs,
+  assertBookingParticipant,
+  assertConfirmedBooking,
+  buildTokenUpdateData,
+} = require("../utils/booking.util");
 
 dotenv.config();
-
-const SECRET = process.env.QR_SECRET;
-if (!SECRET) throw new Error("Missing QR_SECRET in .env");
 
 /**
  * Cloud Function to regenerate expired or invalid QR tokens for a booking.
@@ -28,8 +28,12 @@ exports.regenerateToken = async (request) => {
   }
 
   // Firestore references
-  const userBookingRef = admin.firestore().doc(`users/${userId}/bookings/${bookingId}`);
-  const assetBookingRef = admin.firestore().doc(`assets/${assetId}/bookings/${bookingId}`);
+  const { userBookingRef, assetBookingRef } = getBookingRefs({
+    userId,
+    renterId: userId,
+    assetId,
+    bookingId,
+  });
   const bookingSnap = await assetBookingRef.get();
 
   if (!bookingSnap.exists) {
@@ -37,53 +41,21 @@ exports.regenerateToken = async (request) => {
   }
 
   const booking = bookingSnap.data();
+  assertBookingParticipant(auth.uid, booking);
+  assertConfirmedBooking(booking);
 
-  // NEW: Use startDate/endDate instead of deprecated dates array
-  const startDate = booking?.startDate?.toDate?.() || booking?.startDate;
-  const endDate = booking?.endDate?.toDate?.() || booking?.endDate;
-
-  if (!startDate || !endDate) {
-    throwAndLogHttpsError(
-      "failed-precondition",
-      "Booking must have startDate and endDate"
-    );
+  if (booking?.renter?.uid !== userId) {
+    throwAndLogHttpsError("invalid-argument", "Booking renter does not match request");
   }
 
-  // Extract start and end of booking
-  const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
-  const handoverExpiry = new Date(endDate.getTime());
-  const returnExpiry = new Date(endDate.getTime() + threeDaysMs);
-
-  // Generate new UUIDs and tokens
-  const newHandoverUuid = uuidv4();
-  const newReturnUuid = uuidv4();
-
-  const newHandoverToken = createSignedToken({
+  const tokenData = buildTokenUpdateData({
     bookingId,
-    userId,
+    renterId: userId,
     assetId,
-    action: "handover",
-    uuid: newHandoverUuid,
-    expiresAt: handoverExpiry.getTime(),
+    endDate: booking.endDate,
+    existingTokens: booking.tokens,
+    markRegenerated: true,
   });
-
-  const newReturnToken = createSignedToken({
-    bookingId,
-    userId,
-    assetId,
-    action: "return",
-    uuid: newReturnUuid,
-    expiresAt: returnExpiry.getTime(),
-  });
-
-  // Prepare Firestore update data
-  const updateData = {
-    tokens: {
-      handoverToken: newHandoverToken,
-      returnToken: newReturnToken,
-      regeneratedAt: admin.firestore?.FieldValue.serverTimestamp() || new Date(),
-    },
-  };
 
   // SAFE: Atomic transaction - both updates or neither
   await admin.firestore().runTransaction(async (transaction) => {
@@ -101,20 +73,14 @@ exports.regenerateToken = async (request) => {
     }
 
     // Update both atomically
-    transaction.update(userBookingRef, updateData);
-    transaction.update(assetBookingRef, updateData);
+    transaction.update(userBookingRef, { tokens: tokenData.tokens });
+    transaction.update(assetBookingRef, { tokens: tokenData.tokens });
   });
 
   return {
     success: true,
     message: "QR tokens regenerated successfully",
-    tokens: {
-      handover: newHandoverToken,
-      return: newReturnToken,
-    },
-    expiries: {
-      handover: handoverExpiry.toISOString(),
-      return: returnExpiry.toISOString(),
-    },
+    tokens: tokenData.rawTokens,
+    expiries: tokenData.expiries,
   };
 };

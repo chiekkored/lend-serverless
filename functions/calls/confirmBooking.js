@@ -1,7 +1,13 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
-const { v4: uuidv4 } = require("uuid");
 const { throwAndLogHttpsError } = require("../utils/error.util");
+const {
+  BOOKING_STATUS,
+  buildTokenUpdateData,
+  assertBookingOwner,
+  getBookingActors,
+} = require("../utils/booking.util");
+const { getTaskServiceAccountEmail } = require("../utils/task.util");
 
 /**
  * Cloud Function: Two-Phase Booking Confirmation
@@ -38,24 +44,41 @@ exports.confirmBooking = async (request) => {
     // --- PHASE 1: ATOMIC TRANSACTION (Confirm selected booking) ---
     const confirmResult = await db.runTransaction(async (transaction) => {
       const selectedSnap = await transaction.get(selectedBookingRef);
+      const userBookingSnap = await transaction.get(userBookingRef);
 
-      if (!selectedSnap.exists) {
+      if (!selectedSnap.exists || !userBookingSnap.exists) {
         throw new Error("Booking not found");
       }
 
       const booking = selectedSnap.data();
-      if (booking.status !== "Pending") {
+      assertBookingOwner(context.auth.uid, booking);
+
+      if (booking?.renter?.uid !== renterId) {
+        throw new Error("Booking renter does not match request");
+      }
+
+      if (booking.status !== BOOKING_STATUS.pending) {
         throw new Error("Booking is no longer pending");
       }
 
+      const tokenData = buildTokenUpdateData({
+        bookingId,
+        renterId,
+        assetId,
+        endDate: booking.endDate,
+        existingTokens: booking.tokens,
+      });
+
       // Confirm selected booking
       transaction.update(selectedBookingRef, {
-        status: "Confirmed",
+        status: BOOKING_STATUS.confirmed,
+        tokens: tokenData.tokens,
         lastUpdated: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),
       });
 
       transaction.update(userBookingRef, {
-        status: "Confirmed",
+        status: BOOKING_STATUS.confirmed,
+        tokens: tokenData.tokens,
         lastUpdated: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),
       });
 
@@ -104,6 +127,8 @@ exports.confirmBooking = async (request) => {
         startDate: booking.startDate,
         endDate: booking.endDate,
         messagesSent: !!chatId,
+        tokens: tokenData.rawTokens,
+        expiries: tokenData.expiries,
       };
     });
 
@@ -120,19 +145,28 @@ exports.confirmBooking = async (request) => {
       });
 
       console.log(`[confirmBooking PHASE 2] Enqueued decline task for overlapping bookings`);
+      return {
+        success: true,
+        message: `Booking ${bookingId} confirmed`,
+        phase1: "completed",
+        phase2: "enqueued",
+        tokens: confirmResult.tokens,
+        expiries: confirmResult.expiries,
+      };
     } catch (enqueueError) {
       console.warn(
         `[confirmBooking] Failed to enqueue decline task: ${enqueueError.message}. Overlapping bookings will be declined manually or on next sync.`,
       );
-      // Don't rethrow - Phase 1 succeeded and that's what matters
+      return {
+        success: true,
+        message: `Booking ${bookingId} confirmed`,
+        phase1: "completed",
+        phase2: "enqueue_failed",
+        warning: enqueueError.message,
+        tokens: confirmResult.tokens,
+        expiries: confirmResult.expiries,
+      };
     }
-
-    return {
-      success: true,
-      message: `Booking ${bookingId} confirmed`,
-      phase1: "completed",
-      phase2: "enqueued",
-    };
   } catch (error) {
     console.error(`[confirmBooking] Error: ${error.message}`);
     throwAndLogHttpsError("internal", error.message);
@@ -153,13 +187,15 @@ async function enqueueDeclineTask({ assetId, selectedBookingId, startDate, endDa
     const project = process.env.GCP_PROJECT;
     const queue = "decline-overlapping-bookings";
     const location = "us-central1";
+    const url = `https://us-central1-${project}.cloudfunctions.net/declineOverlappingBookings`;
+    const serviceAccountEmail = getTaskServiceAccountEmail(project);
 
     const parent = client.queuePath(project, location, queue);
 
     const task = {
       httpRequest: {
         httpMethod: "POST",
-        url: `https://us-central1-${project}.cloudfunctions.net/declineOverlappingBookings`,
+        url,
         headers: {
           "Content-Type": "application/json",
         },
@@ -169,9 +205,12 @@ async function enqueueDeclineTask({ assetId, selectedBookingId, startDate, endDa
             selectedBookingId,
             startDate: startDate?.toMillis?.() || startDate,
             endDate: endDate?.toMillis?.() || endDate,
-            taskId: uuidv4(),
           }),
         ).toString("base64"),
+        oidcToken: {
+          serviceAccountEmail,
+          audience: url,
+        },
       },
     };
 

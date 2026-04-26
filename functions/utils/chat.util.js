@@ -28,10 +28,14 @@ exports.sendSystemChatMessage = async ({
   };
 
   const chatUpdateData = {
-    lastMessage: messageText, // This might need to be adjusted for rating messages
-    lastMessageDate: FieldValue?.serverTimestamp() || new Date(),
-    lastMessageSenderId: "", // System message
     hasRead: false,
+    ...(includeLastMessage
+      ? {
+          lastMessage: messageText,
+          lastMessageDate: FieldValue?.serverTimestamp() || new Date(),
+          lastMessageSenderId: "",
+        }
+      : {}),
   };
 
   await firestore.runTransaction(async (transaction) => {

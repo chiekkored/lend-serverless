@@ -1,0 +1,127 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function bookingParticipants(data) {
+      return isSignedIn() &&
+        (request.auth.uid == data.renter.uid ||
+          request.auth.uid == data.asset.owner.uid);
+    }
+
+    function bookingIdentityUnchanged() {
+      return request.resource.data.id == resource.data.id &&
+        request.resource.data.chatId == resource.data.chatId &&
+        request.resource.data.asset == resource.data.asset &&
+        request.resource.data.renter == resource.data.renter &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.startDate == resource.data.startDate &&
+        request.resource.data.endDate == resource.data.endDate &&
+        request.resource.data.numDays == resource.data.numDays &&
+        request.resource.data.totalPrice == resource.data.totalPrice &&
+        request.resource.data.status == resource.data.status &&
+        request.resource.data.tokens == resource.data.tokens &&
+        request.resource.data.handedOver == resource.data.handedOver &&
+        request.resource.data.returned == resource.data.returned;
+    }
+
+    function isChatParticipant(chatId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/userChats/$(request.auth.uid)/chats/$(chatId));
+    }
+
+    match /users/{uid} {
+      allow read: if isSignedIn();
+      allow create: if isSelf(uid);
+      allow update, delete: if isSelf(uid);
+
+      match /assets/{assetId} {
+        allow read, write: if isSelf(uid);
+      }
+
+      match /saved/{assetId} {
+        allow read, write: if isSelf(uid);
+      }
+
+      match /bookings/{bookingId} {
+        allow read: if bookingParticipants(resource.data);
+        allow create: if isSelf(uid) &&
+          request.resource.data.renter.uid == request.auth.uid &&
+          request.resource.data.status == 'Pending';
+        allow update: if isSelf(uid) && bookingIdentityUnchanged();
+        allow delete: if false;
+
+        match /events/{eventId} {
+          allow read: if isSelf(uid);
+          allow write: if false;
+        }
+      }
+    }
+
+    match /assets/{assetId} {
+      allow read: if true;
+      allow create: if isSignedIn() &&
+        request.resource.data.ownerId == request.auth.uid;
+      allow update, delete: if isSignedIn() &&
+        resource.data.ownerId == request.auth.uid;
+
+      match /bookings/{bookingId} {
+        allow read: if bookingParticipants(resource.data);
+        allow create: if isSignedIn() &&
+          request.resource.data.renter.uid == request.auth.uid &&
+          request.resource.data.status == 'Pending';
+        allow update, delete: if false;
+      }
+
+      match /ratings/{ratingId} {
+        allow read: if true;
+        allow create: if isSignedIn() &&
+          request.resource.data.userId == request.auth.uid;
+        allow update, delete: if false;
+      }
+    }
+
+    match /chats/{chatId} {
+      allow read: if isChatParticipant(chatId);
+      allow create: if isSignedIn() &&
+        request.resource.data.chatType == 'Private';
+      allow update, delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if isChatParticipant(chatId);
+        allow create: if isSignedIn() &&
+          (
+            isChatParticipant(chatId) ||
+            request.resource.data.senderId == request.auth.uid
+          );
+        allow update, delete: if false;
+      }
+    }
+
+    match /userChats/{uid} {
+      allow read: if isSelf(uid);
+      allow create: if isSignedIn() &&
+        request.resource.data.keys().hasOnly(['isOnline']);
+      allow update: if isSelf(uid);
+      allow delete: if false;
+
+      match /chats/{chatId} {
+        allow read: if isSelf(uid);
+        allow create: if isSignedIn() &&
+          (request.resource.data.renterId == request.auth.uid ||
+            request.resource.data.asset.owner.uid == request.auth.uid);
+        allow update: if isSignedIn() &&
+          (isSelf(uid) ||
+            request.resource.data.lastMessageSenderId == request.auth.uid);
+        allow delete: if isSelf(uid);
+      }
+    }
+  }
+}

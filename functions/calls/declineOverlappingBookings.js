@@ -1,5 +1,7 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
+const { BOOKING_STATUS, CHAT_STATUS, parseFirestoreDate } = require("../utils/booking.util");
+const { verifyCloudTaskRequest } = require("../utils/task.util");
 
 /**
  * Cloud Function: Decline Overlapping Bookings (Cloud Tasks Handler)
@@ -12,31 +14,28 @@ const admin = require("firebase-admin");
  * Cloud Tasks provides automatic retries with exponential backoff.
  */
 exports.declineOverlappingBookings = functions.https.onRequest(async (request, response) => {
-  // Verify this came from Cloud Tasks
   if (request.method !== "POST") {
     return response.status(405).send("Method Not Allowed");
   }
 
   const db = admin.firestore();
 
+  try {
+    await verifyCloudTaskRequest(request);
+  } catch (authError) {
+    console.error(`[declineOverlappingBookings] Unauthorized request: ${authError.message}`);
+    return response.status(401).send("Unauthorized");
+  }
+
   let payload;
   try {
-    // Decode Cloud Tasks payload (base64 encoded)
-    const envelope = request.body;
-    if (!envelope.message) {
-      console.warn("[declineOverlappingBookings] No message in request body");
-      return response.status(400).send("No message");
-    }
-
-    const decodedMessage = Buffer.from(envelope.message.data, "base64").toString();
-    payload = JSON.parse(decodedMessage);
+    payload = typeof request.body === "string" ? JSON.parse(request.body) : request.body;
   } catch (parseError) {
     console.error(`[declineOverlappingBookings] Failed to parse Cloud Tasks payload: ${parseError.message}`);
-    // Return 400 to NOT retry (malformed message shouldn't be retried)
     return response.status(400).send("Invalid payload");
   }
 
-  const { assetId, selectedBookingId, startDate, endDate, taskId } = payload;
+  const { assetId, selectedBookingId, startDate, endDate } = payload;
 
   if (!assetId || !selectedBookingId || !startDate || !endDate) {
     console.error("[declineOverlappingBookings] Missing required fields");
@@ -45,12 +44,12 @@ exports.declineOverlappingBookings = functions.https.onRequest(async (request, r
 
   try {
     console.log(
-      `[declineOverlappingBookings] Processing task ${taskId}: asset=${assetId}, skipping=${selectedBookingId}`,
+      `[declineOverlappingBookings] Processing asset=${assetId}, skipping=${selectedBookingId}`,
     );
 
     // Convert timestamps
-    const startDateObj = new Date(startDate);
-    const endDateObj = new Date(endDate);
+    const startDateObj = parseFirestoreDate(startDate);
+    const endDateObj = parseFirestoreDate(endDate);
 
     // Find all pending bookings that overlap with confirmed booking's date range
     const overlappingQuery = await db
@@ -59,7 +58,7 @@ exports.declineOverlappingBookings = functions.https.onRequest(async (request, r
       .collection("bookings")
       .where("startDate", "<=", admin.firestore.Timestamp.fromDate(endDateObj))
       .where("endDate", ">=", admin.firestore.Timestamp.fromDate(startDateObj))
-      .where("status", "==", "Pending")
+      .where("status", "==", BOOKING_STATUS.pending)
       .get();
 
     console.log(`[declineOverlappingBookings] Found ${overlappingQuery.docs.length} overlapping pending bookings`);
@@ -95,13 +94,12 @@ exports.declineOverlappingBookings = functions.https.onRequest(async (request, r
     }
 
     console.log(
-      `[declineOverlappingBookings] Task ${taskId} completed: declined=${declinedCount}, errors=${errorCount}`,
+      `[declineOverlappingBookings] Completed: declined=${declinedCount}, errors=${errorCount}`,
     );
 
     // Return 200 to mark task as successful even if some declines failed
     return response.status(200).json({
       success: true,
-      taskId,
       declinedCount,
       errorCount,
     });
@@ -132,19 +130,19 @@ async function declineBooking({ assetId, bookingId, renterId, chatId }) {
 
       // Decline booking in asset collection
       batch.update(assetBookingRef, {
-        status: "Declined",
+        status: BOOKING_STATUS.declined,
         lastUpdated: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),
       });
 
       // Decline booking in user collection
       batch.update(userBookingRef, {
-        status: "Declined",
+        status: BOOKING_STATUS.declined,
         lastUpdated: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),
       });
 
       // Archive chat
       batch.update(chatRef, {
-        status: "Archived",
+        status: CHAT_STATUS.archived,
         lastUpdated: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),
       });
 

@@ -2,9 +2,9 @@
 
 ## 1. Executive Summary
 
-This repository is a narrow Firebase Cloud Functions backend for critical booking and QR handoff flows in Lend, a peer-to-peer rental marketplace. It currently acts as a partial authority for booking confirmation, QR token generation, QR verification, return/handover marking, and some chat-side system messaging.
+This repository is a narrow Firebase Cloud Functions backend for critical booking and QR handoff flows in Lend, a peer-to-peer rental marketplace. It currently acts as the authority for booking confirmation, QR token generation, QR verification, return/handover marking, and overlap cleanup, with chat-side system messaging as a booking side effect.
 
-The implementation is materially smaller than the intended product scope. There are no payment handlers, admin workflows, fraud modules, HTTP APIs for public clients, Firestore rules, or active scheduled jobs in this repo. The real backend surface today is:
+The implementation is materially smaller than the intended product scope. There are no payment handlers, admin workflows, fraud modules, HTTP APIs for public clients, or active scheduled jobs in this repo. The real backend surface today is:
 
 - confirm a booking
 - generate or regenerate QR tokens
@@ -13,7 +13,7 @@ The implementation is materially smaller than the intended product scope. There 
 - asynchronously decline overlapping pending bookings
 - send system chat messages as booking side effects
 
-The code shows a backend that is directionally correct in one important way: critical booking confirmation is server-side, not purely client-side. But it is not yet production-grade. The largest issues are weak authorization, broken Cloud Tasks payload handling, duplicated booking state across two Firestore locations, inconsistent status/schema conventions, and a token verification path that is weaker than the token inspection path.
+The code shows a backend that is directionally correct in one important way: critical booking confirmation is server-side, not purely client-side. It is still not production-grade. The largest remaining issues are duplicated booking state across two Firestore locations, incomplete lifecycle centralization, minimal operational observability, and security rules that now exist but still need emulator-backed validation.
 
 ## 2. Architecture Overview
 
@@ -24,6 +24,7 @@ The code shows a backend that is directionally correct in one important way: cri
 - `functions/utils/*`: token signing, chat side effects, error helper
 - `functions/scheduled/syncUserMetadata.js`: designed scheduled job, currently commented out
 - `firebase.json`: functions source and emulator config
+- `firestore.rules`: Firestore security contract
 - `storage.rules`: Cloud Storage rules
 
 ### Runtime and Deployment Style
@@ -70,9 +71,9 @@ Purpose:
 
 Observed behavior:
 
-- Requires auth, but does not verify caller role or ownership
-- Trusts caller-provided `userId`, `assetId`, `bookingId`
-- Reads booking only from the asset-side booking doc
+- Requires auth and now verifies the caller is a booking participant
+- Validates request renter identity against booking data before writing
+- Reads booking from the asset-side booking doc and writes both booking mirrors transactionally
 - Uses `endDate` as the basis for both handover and return token expiry
 
 ### `regenerateToken`
@@ -85,10 +86,9 @@ Purpose:
 
 Observed behavior:
 
-- Requires auth, but no authorization beyond that
-- Allows token regeneration unless `returned.status === true`
-- Does not check booking status, booking participant, or ownership
-- Overwrites the full `tokens` object with fewer fields than `makeToken`
+- Requires auth and now verifies the caller is a booking participant
+- Requires a confirmed booking and rejects returned bookings
+- Regenerates a full `tokens` object including expiry fields in both booking mirrors
 
 ### `verifyToken`
 
@@ -105,7 +105,8 @@ Observed behavior:
 - Verifies token expiry
 - Reads asset-side booking doc
 - Compares the full token string against the token stored in Firestore
-- Uses `handoverAt` / `returnedAt` completion checks that are inconsistent with actual mutation logic elsewhere
+- Enforces confirmed-booking state and action-specific scanner authorization
+- Uses `handedOver.status` / `returned.status` consistently with mutation logic
 
 ### `verifyAndMark`
 
@@ -121,10 +122,10 @@ Purpose:
 
 Observed behavior:
 
-- Requires auth, but no role check
+- Requires auth
 - Verifies token signature and expiry
-- Does not compare the presented token against the stored booking token
-- Has the token UUID consistency check commented out
+- Compares the presented token against the stored booking token before mutation
+- Enforces confirmed-booking state and action-specific scanner authorization
 - Writes boolean status objects under `handedOver` or `returned`
 
 ### `confirmBooking`
@@ -140,10 +141,10 @@ Purpose:
 
 Observed behavior:
 
-- Requires auth, but does not verify that caller is asset owner or admin
-- Trusts caller-provided `bookingId`, `assetId`, `renterId`
-- Checks only that asset-side booking status is `"Pending"`
-- Updates both duplicated booking docs to `"Confirmed"`
+- Requires auth and verifies the caller is the asset owner for the selected booking
+- Validates renter identity against the stored booking
+- Checks that asset-side booking status is `"Pending"`
+- Updates both duplicated booking docs to `"Confirmed"` and now generates QR tokens in the same transaction
 - Uses a two-phase model:
   - phase 1: synchronous transaction for selected booking
   - phase 2: async Cloud Task for overlap cleanup
@@ -160,7 +161,8 @@ Purpose:
 Observed behavior:
 
 - Accepts `POST` only
-- Expects Pub/Sub-style payload shape `request.body.message.data`
+- Verifies Cloud Tasks OIDC in production and allows emulator traffic locally
+- Expects raw JSON payload matching the enqueued task body
 - Queries `assets/{assetId}/bookings` for overlapping `"Pending"` docs
 - Batch-updates asset booking, user booking, and renter chat metadata
 - Does not send decline chat messages or notify owner chat
@@ -426,22 +428,14 @@ That is an abuse vector for:
 
 `declineOverlappingBookings` only checks request method in [`functions/calls/declineOverlappingBookings.js`](/Users/chiekkoredalino/Projects/Flutter Projects/lend-serverless/functions/calls/declineOverlappingBookings.js:16).
 
-It does not verify:
+It now verifies OIDC bearer tokens in production and allows emulator traffic locally, but it still depends on correct service-account and audience configuration to remain locked down.
 
-- Cloud Tasks headers
-- OIDC token
-- calling service account
-- any signed secret
+### 4. Storage Rules Need Validation, Not Reinvention
 
-If the endpoint URL is reachable, it is effectively open to arbitrary POSTs.
+Storage rules are now source-controlled and path-scoped for listing uploads and chat media.
 
-### 4. Storage Rules Are Fully Open
-
-[`storage.rules`](/Users/chiekkoredalino/Projects/Flutter Projects/lend-serverless/storage.rules:7) contains:
-
-- `allow read, write: if true;`
-
-This is a severe production risk. Any internet client with the bucket path can read or write objects unless infrastructure outside this repo blocks it.
+Remaining risk:
+- they still need emulator-backed validation against the real upload paths before they should be treated as hardened production policy
 
 ### 5. Internal Error Leakage
 
@@ -574,17 +568,12 @@ The product brief uses lowercase lifecycle names like `pending`, `confirmed`, `c
 
 If the app expects lowercase enum values, this backend will drift.
 
-#### 2. Booking Completion Field Drift
+#### 2. Security Rules Now Exist but Need Coverage
 
-`verifyAndMark` writes `handedOver.status` / `returned.status`, while `verifyToken` checks `handoverAt` / `returnedAt`.
+Firestore and Storage rules are now source-controlled in this repo.
 
-If the app depends on one shape and the backend writes another, UI state and callable validation will disagree.
-
-#### 3. Chat Archive Status Drift
-
-Overlap decline writes `status: "Archived"` in [`functions/calls/declineOverlappingBookings.js`](/Users/chiekkoredalino/Projects/Flutter Projects/lend-serverless/functions/calls/declineOverlappingBookings.js:146), while return flow writes `status: "archived"` in [`functions/calls/verifyAndMark.js`](/Users/chiekkoredalino/Projects/Flutter Projects/lend-serverless/functions/calls/verifyAndMark.js:157).
-
-That is a direct schema inconsistency inside the backend and likely to produce client branching bugs.
+Remaining concern:
+- they need emulator-backed validation against real mobile flows before they should be treated as hardened production policy
 
 #### 4. Scheduled Sync Expectations
 
@@ -606,14 +595,9 @@ If the mobile app expects backend-authoritative cancellation, payment confirmati
 
 ### Priority 0: Fix Integrity Breakers Immediately
 
-1. Fix Cloud Tasks payload contract and secure the HTTP task endpoint with OIDC/service-account verification.
-2. Make `verifyAndMark` at least as strict as `verifyToken`:
-   - compare full token against Firestore
-   - restore UUID/current-token validation
-   - enforce booking state preconditions
-3. Add real authorization checks to every callable:
-   - asset owner only for confirmation
-   - participant/role-based checks for token generation and verification
+1. Extend automated coverage around the current task, token, and callable authorization contracts.
+2. Keep `verifyAndMark` and `verifyToken` behavior in lockstep whenever token or lifecycle semantics change.
+3. Audit every remaining client-side lifecycle mutation and move it behind backend authority.
 
 ### Priority 1: Consolidate Booking State Authority
 
@@ -631,8 +615,8 @@ If the mobile app expects backend-authoritative cancellation, payment confirmati
 
 ### Priority 3: Lock Down Security Posture
 
-12. Replace open `storage.rules` with authenticated, path-scoped, ownership-aware rules.
-13. Add Firestore rules to repo if they exist elsewhere; if not, create and source-control them.
+12. Expand the new Firestore and Storage rules with emulator-backed scenario coverage.
+13. Document how security rules, callable auth, and mobile flows are expected to evolve together.
 14. Document production secret/config management instead of relying on implicit `.env` habits.
 15. Add App Check or other abuse controls for callable access.
 
@@ -721,4 +705,3 @@ Add:
 ### CTO View
 
 This backend is not a lost cause. It already centralizes some of the right responsibilities. But it is currently a prototype-grade authority layer, not a production-trustworthy one. The fastest path to maturity is not adding more features first. It is locking down authorization, fixing the overlap job contract, unifying lifecycle schema, and making the token mutation path trustworthy.
-

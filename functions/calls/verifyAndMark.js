@@ -4,6 +4,11 @@ const crypto = require("crypto");
 const dotenv = require("dotenv");
 const { sendSystemChatMessage } = require("../utils/chat.util"); // Import the chat utility
 const { throwAndLogHttpsError } = require("../utils/error.util"); // Import the error utility
+const {
+  assertConfirmedBooking,
+  assertQrScannerAuthorized,
+  getExpectedTokenForAction,
+} = require("../utils/booking.util");
 
 dotenv.config();
 
@@ -77,14 +82,27 @@ exports.verifyAndMark = async (request) => {
       throwAndLogHttpsError("not-found", "No tokens found in booking");
     }
 
+    assertConfirmedBooking(userBooking || assetBooking);
+    assertQrScannerAuthorized({
+      authUid: auth.uid,
+      action,
+      booking: userBooking || assetBooking,
+    });
+
     // Retrieve chatID and ownerID for sending system message
     chatID = userBooking.chatId;
     ownerID = userBooking.asset.owner.uid;
 
-    // --- Validate the UUID matches ---
-    // if (tokens[`${action}Token`].uuid !== uuid) {
-    //   throwAndLogHttpsError("permission-denied", "Invalid token UUID");
-    // }
+    const expectedToken = getExpectedTokenForAction(tokens, action);
+    if (!expectedToken || expectedToken !== token) {
+      throwAndLogHttpsError("permission-denied", "Token mismatch or outdated QR");
+    }
+
+    const expectedPayloadB64 = expectedToken.split(".")[0];
+    const currentPayloadB64 = token.split(".")[0];
+    if (expectedPayloadB64 !== currentPayloadB64) {
+      throwAndLogHttpsError("permission-denied", "Invalid token payload");
+    }
 
     // --- Check if already marked ---
     const fieldName = action === "handover" ? "handedOver" : "returned";
@@ -154,7 +172,7 @@ exports.verifyAndMark = async (request) => {
     const ownerUserChatRef = admin.firestore().collection("userChats").doc(ownerID).collection("chats").doc(chatID);
 
     await admin.firestore().runTransaction(async (tx) => {
-      tx.update(ownerUserChatRef, { status: "archived" }); // Ensure status string matches Flutter enum
+      tx.update(ownerUserChatRef, { status: "Archived" });
     });
   }
 

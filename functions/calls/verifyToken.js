@@ -3,6 +3,11 @@ const admin = require("firebase-admin");
 const crypto = require("crypto");
 const dotenv = require("dotenv");
 const { throwAndLogHttpsError } = require("../utils/error.util");
+const {
+  assertConfirmedBooking,
+  assertQrScannerAuthorized,
+  getExpectedTokenForAction,
+} = require("../utils/booking.util");
 
 dotenv.config();
 
@@ -67,14 +72,8 @@ exports.verifyToken = async (request) => {
   }
 
   const booking = bookingSnap.data();
-
-  // --- Guard conditions for already completed actions ---
-  if (action === "handover" && booking.handoverAt) {
-    throwAndLogHttpsError("already-exists", "Handover already completed for this booking");
-  }
-  if (action === "return" && booking.returnedAt) {
-    throwAndLogHttpsError("already-exists", "Return already completed for this booking");
-  }
+  assertConfirmedBooking(booking);
+  assertQrScannerAuthorized({ authUid: auth.uid, action, booking });
 
   const tokens = booking?.tokens;
   if (!tokens) {
@@ -82,8 +81,7 @@ exports.verifyToken = async (request) => {
   }
 
   // --- Compare Token ---
-  // Rename variable for clarity. This is the *full token* from Firestore.
-  const expectedToken = action === "handover" ? tokens.handoverToken : action === "return" ? tokens.returnToken : null;
+  const expectedToken = getExpectedTokenForAction(tokens, action);
 
   if (!expectedToken) {
     throwAndLogHttpsError("invalid-argument", "Invalid token action");
@@ -93,6 +91,11 @@ exports.verifyToken = async (request) => {
   // The 'token' variable is the full token string from request.data.
   if (expectedToken !== token) {
     throwAndLogHttpsError("permission-denied", "Token mismatch or outdated QR");
+  }
+
+  const completionField = action === "handover" ? "handedOver" : "returned";
+  if (booking?.[completionField]?.status === true) {
+    throwAndLogHttpsError("already-exists", `${action} already completed for this booking`);
   }
 
   // --- Return valid token info ---

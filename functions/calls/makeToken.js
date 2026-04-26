@@ -1,15 +1,15 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
-const crypto = require("crypto");
 const dotenv = require("dotenv");
-const { v4: uuidv4 } = require("uuid");
-const { createSignedToken } = require("../utils/token.util");
 const { throwAndLogHttpsError } = require("../utils/error.util");
+const {
+  getBookingRefs,
+  assertBookingParticipant,
+  assertConfirmedBooking,
+  buildTokenUpdateData,
+} = require("../utils/booking.util");
 
 dotenv.config();
-
-const SECRET = process.env.QR_SECRET;
-if (!SECRET) throw new Error("Missing QR_SECRET in .env");
 
 exports.makeToken = async (request) => {
   const auth = request.auth;
@@ -24,8 +24,12 @@ exports.makeToken = async (request) => {
   }
 
   // Firestore references
-  const userBookingRef = admin.firestore().doc(`users/${userId}/bookings/${bookingId}`);
-  const assetBookingRef = admin.firestore().doc(`assets/${assetId}/bookings/${bookingId}`);
+  const { userBookingRef, assetBookingRef } = getBookingRefs({
+    userId,
+    renterId: userId,
+    assetId,
+    bookingId,
+  });
 
   const bookingSnap = await assetBookingRef.get();
 
@@ -34,54 +38,20 @@ exports.makeToken = async (request) => {
   }
 
   const booking = bookingSnap.data();
+  assertBookingParticipant(auth.uid, booking);
+  assertConfirmedBooking(booking);
 
-  // NEW: Use startDate/endDate instead of deprecated dates array
-  const startDate = booking?.startDate?.toDate?.() || booking?.startDate;
-  const endDate = booking?.endDate?.toDate?.() || booking?.endDate;
-
-  if (!startDate || !endDate) {
-    throwAndLogHttpsError("failed-precondition", "Booking must have startDate and endDate");
+  if (booking?.renter?.uid !== userId) {
+    throwAndLogHttpsError("invalid-argument", "Booking renter does not match request");
   }
 
-  // Calculate token expiry: 3 days from now (default) or endDate + 3 days
-  const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
-
-  // Calculate expiries based on booked dates + 3 days
-  const handoverExpiry = new Date(endDate.getTime());
-  const returnExpiry = new Date(endDate.getTime() + threeDaysMs);
-
-  // Generate distinct tokens
-  const handoverUuid = uuidv4();
-  const returnUuid = uuidv4();
-
-  const handoverToken = createSignedToken({
+  const tokenData = buildTokenUpdateData({
     bookingId,
-    userId,
+    renterId: userId,
     assetId,
-    action: "handover",
-    uuid: handoverUuid,
-    expiresAt: handoverExpiry.getTime(),
+    endDate: booking.endDate,
+    existingTokens: booking.tokens,
   });
-
-  const returnToken = createSignedToken({
-    bookingId,
-    userId,
-    assetId,
-    action: "return",
-    uuid: returnUuid,
-    expiresAt: returnExpiry.getTime(),
-  });
-
-  // Prepare Firestore update data
-  const updateData = {
-    tokens: {
-      handoverToken,
-      returnToken,
-      createdAt: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),
-      handoverExpiry: admin.firestore?.Timestamp?.fromDate(handoverExpiry) || handoverExpiry,
-      returnExpiry: admin.firestore?.Timestamp?.fromDate(returnExpiry) || returnExpiry,
-    },
-  };
 
   // SAFE: Atomic transaction - both updates or neither
   await admin.firestore().runTransaction(async (transaction) => {
@@ -94,19 +64,13 @@ exports.makeToken = async (request) => {
     }
 
     // Update both atomically
-    transaction.update(userBookingRef, updateData);
-    transaction.update(assetBookingRef, updateData);
+    transaction.update(userBookingRef, { tokens: tokenData.tokens });
+    transaction.update(assetBookingRef, { tokens: tokenData.tokens });
   });
 
   return {
     success: true,
-    tokens: {
-      handover: handoverToken,
-      return: returnToken,
-    },
-    expiries: {
-      handover: handoverExpiry.toISOString(),
-      return: returnExpiry.toISOString(),
-    },
+    tokens: tokenData.rawTokens,
+    expiries: tokenData.expiries,
   };
 };
