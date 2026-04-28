@@ -1,7 +1,12 @@
 const admin = require("firebase-admin");
-const functions = require("firebase-functions");
 const { throwAndLogHttpsError } = require("../utils/error.util");
-const { BOOKING_STATUS, CHAT_STATUS, parseFirestoreDate } = require("../utils/booking.util");
+const {
+  BOOKING_STATUS,
+  CHAT_STATUS,
+  parseFirestoreDate,
+  normalizeToDay,
+  exclusiveDayCount,
+} = require("../utils/booking.util");
 
 exports.createBookingRequest = async (request) => {
   const auth = request.auth;
@@ -30,13 +35,9 @@ exports.createBookingRequest = async (request) => {
   const normalizedStart = normalizeToDay(startDate);
   const normalizedEnd = normalizeToDay(endDate);
 
-  if (normalizedEnd < normalizedStart) {
-    throwAndLogHttpsError("invalid-argument", "End date must be on or after start date");
-  }
-
-  const numDays = diffInInclusiveDays(normalizedStart, normalizedEnd);
-  if (numDays < 2) {
-    throwAndLogHttpsError("invalid-argument", "Booking must span at least 2 days");
+  const numDays = exclusiveDayCount(normalizedStart, normalizedEnd);
+  if (numDays < 1) {
+    throwAndLogHttpsError("invalid-argument", "End date must be after start date");
   }
 
   if (typeof totalPrice !== "number" || totalPrice <= 0) {
@@ -76,8 +77,8 @@ exports.createBookingRequest = async (request) => {
     .collection("assets")
     .doc(assetId)
     .collection("bookings")
-    .where("startDate", "<=", admin.firestore.Timestamp.fromDate(normalizedEnd))
-    .where("endDate", ">=", admin.firestore.Timestamp.fromDate(normalizedStart))
+    .where("startDate", "<", admin.firestore.Timestamp.fromDate(normalizedEnd))
+    .where("endDate", ">", admin.firestore.Timestamp.fromDate(normalizedStart))
     .where("status", "==", BOOKING_STATUS.confirmed)
     .limit(1)
     .get();
@@ -152,15 +153,6 @@ exports.createBookingRequest = async (request) => {
     message: "Booking request created",
   };
 };
-
-function normalizeToDay(date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function diffInInclusiveDays(startDate, endDate) {
-  const millisecondsPerDay = 24 * 60 * 60 * 1000;
-  return Math.floor((endDate.getTime() - startDate.getTime()) / millisecondsPerDay) + 1;
-}
 
 function toSimpleUser(user, uid) {
   return {

@@ -1,6 +1,11 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
-const { BOOKING_STATUS, CHAT_STATUS, parseFirestoreDate } = require("../utils/booking.util");
+const {
+  BOOKING_STATUS,
+  CHAT_STATUS,
+  parseFirestoreDate,
+  normalizeToDay,
+} = require("../utils/booking.util");
 const { verifyCloudTaskRequest } = require("../utils/task.util");
 
 /**
@@ -48,16 +53,16 @@ exports.declineOverlappingBookings = functions.https.onRequest(async (request, r
     );
 
     // Convert timestamps
-    const startDateObj = parseFirestoreDate(startDate);
-    const endDateObj = parseFirestoreDate(endDate);
+    const startDateObj = normalizeToDay(parseFirestoreDate(startDate));
+    const endDateObj = normalizeToDay(parseFirestoreDate(endDate));
 
     // Find all pending bookings that overlap with confirmed booking's date range
     const overlappingQuery = await db
       .collection("assets")
       .doc(assetId)
       .collection("bookings")
-      .where("startDate", "<=", admin.firestore.Timestamp.fromDate(endDateObj))
-      .where("endDate", ">=", admin.firestore.Timestamp.fromDate(startDateObj))
+      .where("startDate", "<", admin.firestore.Timestamp.fromDate(endDateObj))
+      .where("endDate", ">", admin.firestore.Timestamp.fromDate(startDateObj))
       .where("status", "==", BOOKING_STATUS.pending)
       .get();
 

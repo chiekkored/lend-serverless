@@ -23,6 +23,26 @@ function parseFirestoreDate(value) {
   return new Date(value);
 }
 
+function normalizeToDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function exclusiveDayCount(startDate, endDate) {
+  const normalizedStart = normalizeToDay(startDate);
+  const normalizedEnd = normalizeToDay(endDate);
+
+  if (normalizedEnd <= normalizedStart) {
+    return 0;
+  }
+
+  const millisecondsPerDay = 24 * 60 * 60 * 1000;
+  return Math.floor((normalizedEnd.getTime() - normalizedStart.getTime()) / millisecondsPerDay);
+}
+
+function addDays(date, days) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
+}
+
 function getBookingRefs({ assetId, bookingId, renterId }) {
   return {
     assetBookingRef: admin.firestore().doc(`assets/${assetId}/bookings/${bookingId}`),
@@ -151,6 +171,9 @@ module.exports = {
   BOOKING_STATUS,
   CHAT_STATUS,
   parseFirestoreDate,
+  normalizeToDay,
+  exclusiveDayCount,
+  addDays,
   getBookingRefs,
   getBookingActors,
   assertBookingOwner,
