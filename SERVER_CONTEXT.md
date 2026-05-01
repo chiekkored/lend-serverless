@@ -14,7 +14,7 @@ The implementation is materially smaller than the intended product scope. There 
 - asynchronously decline overlapping pending bookings
 - send system chat messages as booking side effects
 
-The code shows a backend that is directionally correct in one important way: critical booking confirmation is server-side, not purely client-side. It is still not production-grade. The largest remaining issues are duplicated booking state across two Firestore locations, incomplete lifecycle centralization, minimal operational observability, and callable/task behavior that still needs broader contract coverage.
+The code shows a backend that is directionally correct in one important way: critical booking lifecycle changes are server-side, not purely client-side. It is still not production-grade. The largest remaining issues are duplicated booking state across two Firestore locations, minimal operational observability, and callable/task behavior that still needs broader contract coverage.
 
 ## 2. Architecture Overview
 
@@ -81,7 +81,7 @@ Observed behavior:
 - Requires auth and treats `request.auth.uid` as the renter
 - Loads the canonical asset and renter documents before writing
 - Prevents owner self-booking
-- Rejects overlapping confirmed bookings for the requested range
+- Rejects overlapping active bookings for the requested range
 - Writes the current booking schema with `startDate`, `endDate`, and `numDays`
 
 ### `makeToken`
@@ -113,7 +113,7 @@ Purpose:
 Observed behavior:
 
 - Requires auth and now verifies the caller is a booking participant
-- Requires a confirmed booking and rejects returned bookings
+- Requires `Confirmed` or `HandedOver` status and rejects returned/completed bookings
 - Regenerates a full `tokens` object including expiry fields in both booking mirrors
 
 ### `verifyToken`
@@ -131,8 +131,8 @@ Observed behavior:
 - Verifies token expiry
 - Reads asset-side booking doc
 - Compares the full token string against the token stored in Firestore
-- Enforces confirmed-booking state and action-specific scanner authorization
-- Uses `handedOver.status` / `returned.status` consistently with mutation logic
+- Enforces action-specific lifecycle status and scanner authorization
+- Requires `Confirmed` for handover and `HandedOver` for return
 
 ### `verifyAndMark`
 
@@ -151,8 +151,9 @@ Observed behavior:
 - Requires auth
 - Verifies token signature and expiry
 - Compares the presented token against the stored booking token before mutation
-- Enforces confirmed-booking state and action-specific scanner authorization
-- Writes boolean status objects under `handedOver` or `returned`
+- Enforces action-specific lifecycle status and scanner authorization
+- Moves `Confirmed -> HandedOver` or `HandedOver -> Returned`
+- Writes deterministic lifecycle event documents under both booking mirrors
 
 ### `confirmBooking`
 
@@ -323,28 +324,28 @@ Remaining operational risk:
 
 ### Status Lifecycle Actually Implemented
 
-Implemented statuses/markers found in code:
+Implemented booking statuses found in code:
 
 - `"Pending"`
 - `"Confirmed"`
+- `"HandedOver"`
+- `"Returned"`
+- `"Completed"`
 - `"Declined"`
+- `"Cancelled"`
 - chat status `"Archived"`
 - chat status `"archived"`
-- `handedOver.status === true`
-- `returned.status === true`
 
-The richer lifecycle from the product brief is not implemented in this repository. There is no authoritative server-side model for:
+Unsupported product-brief aliases should not be used as persisted booking values:
 
 - `ready_for_pickup`
 - `active`
 - `return_pending`
-- `completed`
-- `cancelled`
-- `declined` in lowercase
+- lowercase lifecycle names
 
 Conclusion:
 
-The backend now enforces the canonical booking range contract through shared helpers and owns the critical lifecycle mutations used by the mobile app. The broader lifecycle contract is still represented by a mix of status, token, handover, return, and review fields rather than one explicit state machine.
+The backend now enforces the canonical booking range contract through shared helpers and owns the critical lifecycle mutations used by the mobile app. `status` is the single persisted lifecycle state; QR tokens remain credentials only, and lifecycle events provide audit history.
 
 ## 6. QR / Token Trust System
 
@@ -463,19 +464,7 @@ The payload shape and handler contract now align, and production requests requir
 Remaining risk:
 - there is still no automated coverage proving the enqueue path, OIDC assumptions, and overlap cleanup behavior stay aligned
 
-### 2. State Schema Still Needs Centralization
-
-The immediate `verifyToken` versus `verifyAndMark` field drift has been corrected, but booking lifecycle state is still spread across:
-
-- `status`
-- `tokens`
-- `handedOver`
-- `returned`
-- `reviewed`
-
-That still argues for a more explicit lifecycle contract.
-
-### 3. Partial Side-Effect Failures After Booking Mutation
+### 2. Partial Side-Effect Failures After Booking Mutation
 
 `verifyAndMark` commits booking mutation first, then sends chat messages, then runs another transaction to archive owner chat on return.
 
@@ -545,7 +534,11 @@ Backend uses:
 
 - `"Pending"`
 - `"Confirmed"`
+- `"HandedOver"`
+- `"Returned"`
+- `"Completed"`
 - `"Declined"`
+- `"Cancelled"`
 - `"Archived"`
 
 The product brief uses lowercase lifecycle names like `pending`, `confirmed`, `cancelled`, `completed`.
@@ -580,10 +573,8 @@ If the mobile app expects backend-authoritative cancellation, payment confirmati
 
 ### Priority 1: Consolidate Booking State Authority
 
-4. Define a single canonical booking lifecycle enum and use it everywhere.
-5. Normalize status casing and field naming.
-6. Replace ad hoc booleans like `handedOver.status` with explicit lifecycle transitions plus timestamps and actor IDs.
-7. Keep duplicated booking docs if needed, but define one canonical write service and one schema contract.
+4. Normalize status casing and field naming if the product contract moves away from PascalCase values.
+5. Keep duplicated booking docs if needed, but define one canonical write service and one schema contract.
 
 ### Priority 2: Harden Operational Reliability
 

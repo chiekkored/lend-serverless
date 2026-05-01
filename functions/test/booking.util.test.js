@@ -5,10 +5,15 @@ const {
   assertCanonicalBookingRange,
   assertNotReturned,
   assertPendingBooking,
+  assertReviewableBooking,
   assertTokenActionAvailable,
+  assertTokenActionAvailableOrCompleted,
+  assertTokenGenerationAllowed,
+  BOOKING_STATUS,
   exclusiveDayCount,
   getLifecycleMessageId,
-  getCompletionFieldForAction,
+  getExpectedStatusForAction,
+  getTargetStatusForAction,
   isTokenActionCompleted,
   normalizeToDay,
   normalizeBookingRange,
@@ -175,24 +180,29 @@ test("validateSignedQrToken rejects malformed, tampered, expired, and incomplete
   );
 });
 
-test("token action helpers map completion fields and reject completed actions consistently", () => {
-  assert.equal(getCompletionFieldForAction("handover"), "handedOver");
-  assert.equal(getCompletionFieldForAction("return"), "returned");
-  assert.equal(isTokenActionCompleted({ handedOver: { status: true } }, "handover"), true);
-  assert.equal(isTokenActionCompleted({ returned: { status: false } }, "return"), false);
+test("token action helpers map status transitions and reject invalid actions consistently", () => {
+  assert.equal(getExpectedStatusForAction("handover"), BOOKING_STATUS.confirmed);
+  assert.equal(getTargetStatusForAction("handover"), BOOKING_STATUS.handedOver);
+  assert.equal(getExpectedStatusForAction("return"), BOOKING_STATUS.handedOver);
+  assert.equal(getTargetStatusForAction("return"), BOOKING_STATUS.returned);
+  assert.equal(isTokenActionCompleted({ status: BOOKING_STATUS.handedOver }, "handover"), true);
+  assert.equal(isTokenActionCompleted({ status: BOOKING_STATUS.returned }, "return"), true);
+  assert.equal(isTokenActionCompleted({ status: BOOKING_STATUS.handedOver }, "return"), false);
   assert.throws(
-    () => getCompletionFieldForAction("cancel"),
+    () => getTargetStatusForAction("cancel"),
     /Invalid token action/,
   );
 
-  assert.doesNotThrow(() => assertTokenActionAvailable({}, "handover"));
+  assert.doesNotThrow(() => assertTokenActionAvailable({ status: BOOKING_STATUS.confirmed }, "handover"));
+  assert.doesNotThrow(() => assertTokenActionAvailable({ status: BOOKING_STATUS.handedOver }, "return"));
+  assert.doesNotThrow(() => assertTokenActionAvailableOrCompleted({ status: BOOKING_STATUS.returned }, "return"));
   assert.throws(
-    () => assertTokenActionAvailable({ handedOver: { status: true } }, "handover"),
+    () => assertTokenActionAvailable({ status: BOOKING_STATUS.handedOver }, "handover"),
     /handover already completed/,
   );
   assert.throws(
-    () => assertTokenActionAvailable({ returned: { status: true } }, "return"),
-    /return already completed/,
+    () => assertTokenActionAvailable({ status: BOOKING_STATUS.confirmed }, "return"),
+    /Booking must be HandedOver before return/,
   );
 });
 
@@ -203,10 +213,23 @@ test("lifecycle preconditions and message ids are deterministic", () => {
     /Booking is no longer pending/,
   );
 
-  assert.doesNotThrow(() => assertNotReturned({ returned: { status: false } }));
+  assert.doesNotThrow(() => assertNotReturned({ status: BOOKING_STATUS.handedOver }));
   assert.throws(
-    () => assertNotReturned({ returned: { status: true } }),
+    () => assertNotReturned({ status: BOOKING_STATUS.returned }),
     /Booking already returned/,
+  );
+
+  assert.doesNotThrow(() => assertReviewableBooking({ status: BOOKING_STATUS.returned }));
+  assert.throws(
+    () => assertReviewableBooking({ status: BOOKING_STATUS.handedOver }),
+    /Booking must be returned before submitting a review/,
+  );
+
+  assert.doesNotThrow(() => assertTokenGenerationAllowed({ status: BOOKING_STATUS.confirmed }));
+  assert.doesNotThrow(() => assertTokenGenerationAllowed({ status: BOOKING_STATUS.handedOver }));
+  assert.throws(
+    () => assertTokenGenerationAllowed({ status: BOOKING_STATUS.returned }),
+    /Booking is not eligible for QR token generation/,
   );
 
   assert.equal(getLifecycleMessageId("confirmed", "booking-1"), "booking-confirmed-booking-1");

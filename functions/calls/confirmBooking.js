@@ -84,6 +84,17 @@ exports.confirmBooking = async (request) => {
         lastUpdated: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),
       });
 
+      const now = admin.firestore?.FieldValue?.serverTimestamp() || new Date();
+      const event = {
+        type: "confirmed",
+        actorId: context.auth.uid,
+        fromStatus: BOOKING_STATUS.pending,
+        toStatus: BOOKING_STATUS.confirmed,
+        createdAt: now,
+      };
+      transaction.set(selectedBookingRef.collection("events").doc("confirmed"), event, { merge: true });
+      transaction.set(userBookingRef.collection("events").doc("confirmed"), event, { merge: true });
+
       if (ownerId) {
         const ownerAssetMirrorRef = db.collection("users").doc(ownerId).collection("assets").doc(assetId);
         transaction.set(

@@ -3,13 +3,13 @@ const { sendSystemChatMessage } = require("../utils/chat.util"); // Import the c
 const { throwAndLogHttpsError } = require("../utils/error.util"); // Import the error utility
 const { validateSignedQrToken } = require("../utils/token.util");
 const {
-  assertConfirmedBooking,
   assertCanonicalBookingRange,
   assertQrScannerAuthorized,
+  assertTokenActionAvailableOrCompleted,
   CHAT_STATUS,
-  getCompletionFieldForAction,
   getExpectedTokenForAction,
   getLifecycleMessageId,
+  getTargetStatusForAction,
   isTokenActionCompleted,
 } = require("../utils/booking.util");
 
@@ -48,7 +48,8 @@ exports.verifyAndMark = async (request) => {
       throwAndLogHttpsError("not-found", "No tokens found in booking");
     }
 
-    assertConfirmedBooking(userBooking || assetBooking);
+    assertTokenActionAvailableOrCompleted(userBooking, action);
+    assertTokenActionAvailableOrCompleted(assetBooking, action);
     assertCanonicalBookingRange(userBooking);
     assertCanonicalBookingRange(assetBooking);
     assertQrScannerAuthorized({
@@ -71,21 +72,17 @@ exports.verifyAndMark = async (request) => {
       throwAndLogHttpsError("permission-denied", "Invalid token payload");
     }
 
-    // --- Check if already marked ---
-    const fieldName = getCompletionFieldForAction(action);
     alreadyCompleted =
       isTokenActionCompleted(userBooking, action) ||
       isTokenActionCompleted(assetBooking, action);
 
     const now = admin.firestore.FieldValue?.serverTimestamp() || new Date();
+    const fromStatus = userBooking.status;
+    const toStatus = getTargetStatusForAction(action);
 
     if (!alreadyCompleted) {
       const updateData = {
-        [fieldName]: {
-          status: true,
-          updatedAt: now,
-          verifiedBy: auth.uid,
-        },
+        status: toStatus,
         lastUpdated: now,
       };
 
@@ -93,15 +90,18 @@ exports.verifyAndMark = async (request) => {
       tx.update(assetBookingRef, updateData);
     }
 
-    // Optional event logging (recommended for audit trail)
-    const event = {
-      action,
-      actorId: auth.uid,
-      verifiedAt: now,
-      tokenUuid: uuid,
-    };
-    tx.set(userBookingRef.collection("events").doc(`${action}-${uuid}`), event, { merge: true });
-    tx.set(assetBookingRef.collection("events").doc(`${action}-${uuid}`), event, { merge: true });
+    if (!alreadyCompleted) {
+      const event = {
+        type: action,
+        actorId: auth.uid,
+        fromStatus,
+        toStatus,
+        createdAt: now,
+        tokenUuid: uuid,
+      };
+      tx.set(userBookingRef.collection("events").doc(`${action}-${uuid}`), event, { merge: true });
+      tx.set(assetBookingRef.collection("events").doc(`${action}-${uuid}`), event, { merge: true });
+    }
   });
 
   let systemMessageText = "";

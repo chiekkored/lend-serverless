@@ -1,6 +1,7 @@
 const admin = require("firebase-admin");
 const { throwAndLogHttpsError } = require("../utils/error.util");
 const {
+  ACTIVE_BOOKING_STATUSES,
   BOOKING_STATUS,
   CHAT_STATUS,
   normalizeBookingRange,
@@ -63,7 +64,7 @@ exports.createBookingRequest = async (request) => {
     .collection("bookings")
     .where("startDate", "<", admin.firestore.Timestamp.fromDate(bookingRange.endDate))
     .where("endDate", ">", admin.firestore.Timestamp.fromDate(bookingRange.startDate))
-    .where("status", "==", BOOKING_STATUS.confirmed)
+    .where("status", "in", ACTIVE_BOOKING_STATUSES)
     .limit(1)
     .get();
 

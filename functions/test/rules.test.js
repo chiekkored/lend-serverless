@@ -201,9 +201,6 @@ function bookingData() {
     totalPrice: 1000,
     status: "Pending",
     tokens: null,
-    handedOver: null,
-    returned: null,
-    reviewed: false,
   };
 }
 

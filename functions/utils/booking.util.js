@@ -6,9 +6,18 @@ const { throwAndLogHttpsError } = require("./error.util");
 const BOOKING_STATUS = {
   pending: "Pending",
   confirmed: "Confirmed",
+  handedOver: "HandedOver",
+  returned: "Returned",
+  completed: "Completed",
   declined: "Declined",
   cancelled: "Cancelled",
 };
+
+const ACTIVE_BOOKING_STATUSES = [
+  BOOKING_STATUS.confirmed,
+  BOOKING_STATUS.handedOver,
+  BOOKING_STATUS.returned,
+];
 
 const CHAT_STATUS = {
   active: "Active",
@@ -130,12 +139,6 @@ function assertQrScannerAuthorized({ authUid, action, booking }) {
   }
 }
 
-function assertConfirmedBooking(booking) {
-  if (booking?.status !== BOOKING_STATUS.confirmed) {
-    throwAndLogHttpsError("failed-precondition", "Booking must be confirmed");
-  }
-}
-
 function assertPendingBooking(booking) {
   if (booking?.status !== BOOKING_STATUS.pending) {
     throwAndLogHttpsError("failed-precondition", "Booking is no longer pending");
@@ -143,8 +146,28 @@ function assertPendingBooking(booking) {
 }
 
 function assertNotReturned(booking) {
-  if (booking?.returned?.status === true) {
+  if (
+    booking?.status === BOOKING_STATUS.returned ||
+    booking?.status === BOOKING_STATUS.completed
+  ) {
     throwAndLogHttpsError("failed-precondition", "Booking already returned");
+  }
+}
+
+function assertReviewableBooking(booking) {
+  if (booking?.status !== BOOKING_STATUS.returned) {
+    throwAndLogHttpsError("failed-precondition", "Booking must be returned before submitting a review");
+  }
+}
+
+function assertTokenGenerationAllowed(booking) {
+  const allowedStatuses = [
+    BOOKING_STATUS.confirmed,
+    BOOKING_STATUS.handedOver,
+  ];
+
+  if (!allowedStatuses.includes(booking?.status)) {
+    throwAndLogHttpsError("failed-precondition", "Booking is not eligible for QR token generation");
   }
 }
 
@@ -223,20 +246,56 @@ function getExpectedTokenForAction(tokens, action) {
   return null;
 }
 
-function getCompletionFieldForAction(action) {
-  if (action === "handover") return "handedOver";
-  if (action === "return") return "returned";
+function getExpectedStatusForAction(action) {
+  if (action === "handover") return BOOKING_STATUS.confirmed;
+  if (action === "return") return BOOKING_STATUS.handedOver;
+  throwAndLogHttpsError("invalid-argument", "Invalid token action");
+}
+
+function getTargetStatusForAction(action) {
+  if (action === "handover") return BOOKING_STATUS.handedOver;
+  if (action === "return") return BOOKING_STATUS.returned;
   throwAndLogHttpsError("invalid-argument", "Invalid token action");
 }
 
 function isTokenActionCompleted(booking, action) {
-  const completionField = getCompletionFieldForAction(action);
-  return booking?.[completionField]?.status === true;
+  const completedStatuses = {
+    handover: [
+      BOOKING_STATUS.handedOver,
+      BOOKING_STATUS.returned,
+      BOOKING_STATUS.completed,
+    ],
+    return: [
+      BOOKING_STATUS.returned,
+      BOOKING_STATUS.completed,
+    ],
+  };
+
+  if (!completedStatuses[action]) {
+    throwAndLogHttpsError("invalid-argument", "Invalid token action");
+  }
+
+  return completedStatuses[action].includes(booking?.status);
 }
 
 function assertTokenActionAvailable(booking, action) {
   if (isTokenActionCompleted(booking, action)) {
     throwAndLogHttpsError("already-exists", `${action} already completed for this booking`);
+  }
+
+  const expectedStatus = getExpectedStatusForAction(action);
+  if (booking?.status !== expectedStatus) {
+    throwAndLogHttpsError("failed-precondition", `Booking must be ${expectedStatus} before ${action}`);
+  }
+}
+
+function isTokenActionAvailableOrCompleted(booking, action) {
+  return isTokenActionCompleted(booking, action) || booking?.status === getExpectedStatusForAction(action);
+}
+
+function assertTokenActionAvailableOrCompleted(booking, action) {
+  if (!isTokenActionAvailableOrCompleted(booking, action)) {
+    throwAndLogHttpsError("failed-precondition", `Booking cannot perform ${action} from its current status`);
   }
 }
 
@@ -250,6 +309,7 @@ function getLifecycleMessageId(eventName, bookingId) {
 
 module.exports = {
   BOOKING_STATUS,
+  ACTIVE_BOOKING_STATUSES,
   CHAT_STATUS,
   parseFirestoreDate,
   normalizeToDay,
@@ -262,13 +322,17 @@ module.exports = {
   assertBookingOwner,
   assertBookingParticipant,
   assertQrScannerAuthorized,
-  assertConfirmedBooking,
   assertPendingBooking,
   assertNotReturned,
+  assertReviewableBooking,
+  assertTokenGenerationAllowed,
   buildTokenUpdateData,
   getExpectedTokenForAction,
-  getCompletionFieldForAction,
+  getExpectedStatusForAction,
+  getTargetStatusForAction,
   isTokenActionCompleted,
   assertTokenActionAvailable,
+  isTokenActionAvailableOrCompleted,
+  assertTokenActionAvailableOrCompleted,
   getLifecycleMessageId,
 };

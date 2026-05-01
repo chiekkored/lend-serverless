@@ -2,7 +2,6 @@ const admin = require("firebase-admin");
 const { throwAndLogHttpsError } = require("../utils/error.util");
 const { validateSignedQrToken } = require("../utils/token.util");
 const {
-  assertConfirmedBooking,
   assertQrScannerAuthorized,
   assertTokenActionAvailable,
   getExpectedTokenForAction,
@@ -34,8 +33,8 @@ exports.verifyToken = async (request) => {
   }
 
   const booking = bookingSnap.data();
-  assertConfirmedBooking(booking);
   assertQrScannerAuthorized({ authUid: auth.uid, action, booking });
+  assertTokenActionAvailable(booking, action);
 
   const tokens = booking?.tokens;
   if (!tokens) {
@@ -54,8 +53,6 @@ exports.verifyToken = async (request) => {
   if (expectedToken !== token) {
     throwAndLogHttpsError("permission-denied", "Token mismatch or outdated QR");
   }
-
-  assertTokenActionAvailable(booking, action);
 
   // --- Return valid token info ---
   return {

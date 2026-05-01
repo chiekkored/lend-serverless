@@ -5,7 +5,7 @@ const { throwAndLogHttpsError } = require("../utils/error.util");
 const {
   getBookingRefs,
   assertBookingParticipant,
-  assertConfirmedBooking,
+  assertTokenGenerationAllowed,
   assertCanonicalBookingRange,
   buildTokenUpdateData,
 } = require("../utils/booking.util");
@@ -40,7 +40,7 @@ exports.makeToken = async (request) => {
 
   const booking = bookingSnap.data();
   assertBookingParticipant(auth.uid, booking);
-  assertConfirmedBooking(booking);
+  assertTokenGenerationAllowed(booking);
   assertCanonicalBookingRange(booking);
 
   if (booking?.renter?.uid !== userId) {
@@ -64,6 +64,9 @@ exports.makeToken = async (request) => {
     if (!userBookingSnap.exists || !assetBookingSnap.exists) {
       throw new Error("Booking documents not found");
     }
+
+    assertTokenGenerationAllowed(userBookingSnap.data());
+    assertTokenGenerationAllowed(assetBookingSnap.data());
 
     // Update both atomically
     transaction.update(userBookingRef, { tokens: tokenData.tokens });

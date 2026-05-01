@@ -1,6 +1,11 @@
 const admin = require("firebase-admin");
 const { throwAndLogHttpsError } = require("../utils/error.util");
-const { CHAT_STATUS, getBookingRefs } = require("../utils/booking.util");
+const {
+  BOOKING_STATUS,
+  CHAT_STATUS,
+  assertReviewableBooking,
+  getBookingRefs,
+} = require("../utils/booking.util");
 
 exports.submitBookingReview = async (request) => {
   const auth = request.auth;
@@ -71,12 +76,10 @@ exports.submitBookingReview = async (request) => {
       );
     }
 
-    const wasReturned = userBooking?.returned?.status === true || assetBooking?.returned?.status === true;
-    if (!wasReturned) {
-      throwAndLogHttpsError("failed-precondition", "Booking must be returned before submitting a review");
-    }
+    assertReviewableBooking(userBooking);
+    assertReviewableBooking(assetBooking);
 
-    if (userBooking?.reviewed === true || assetBooking?.reviewed === true || ratingSnap.exists) {
+    if (ratingSnap.exists) {
       throwAndLogHttpsError("already-exists", "You have already reviewed this booking.");
     }
 
@@ -99,14 +102,24 @@ exports.submitBookingReview = async (request) => {
     });
 
     transaction.update(userBookingRef, {
-      reviewed: true,
+      status: BOOKING_STATUS.completed,
       lastUpdated: now,
     });
 
     transaction.update(assetBookingRef, {
-      reviewed: true,
+      status: BOOKING_STATUS.completed,
       lastUpdated: now,
     });
+
+    const event = {
+      type: "review-submitted",
+      actorId: renterId,
+      fromStatus: BOOKING_STATUS.returned,
+      toStatus: BOOKING_STATUS.completed,
+      createdAt: now,
+    };
+    transaction.set(userBookingRef.collection("events").doc("review-submitted"), event, { merge: true });
+    transaction.set(assetBookingRef.collection("events").doc("review-submitted"), event, { merge: true });
 
     transaction.set(renterUserChatRef, {
       status: CHAT_STATUS.archived,
