@@ -19,6 +19,9 @@ const {
   createSignedToken,
   validateSignedQrToken,
 } = require("../utils/token.util");
+const {
+  _test: declineOverlappingBookingsTest,
+} = require("../calls/declineOverlappingBookings");
 
 process.env.QR_SECRET = "test-secret";
 
@@ -210,4 +213,47 @@ test("lifecycle preconditions and message ids are deterministic", () => {
   assert.equal(getLifecycleMessageId("handover", "booking-1"), "booking-handover-booking-1");
   assert.equal(getLifecycleMessageId("return", "booking-1"), "booking-return-booking-1");
   assert.equal(getLifecycleMessageId("rating-prompt", "booking-1"), "booking-rating-prompt-booking-1");
+});
+
+test("decline overlap payload normalizes canonical ranges", () => {
+  const payload = declineOverlappingBookingsTest.normalizeOverlapPayload({
+    assetId: "asset-1",
+    selectedBookingId: "booking-1",
+    startDate: new Date(2026, 3, 10, 16, 30).getTime(),
+    endDate: new Date(2026, 3, 12, 9, 0).getTime(),
+  });
+
+  assert.equal(payload.assetId, "asset-1");
+  assert.equal(payload.selectedBookingId, "booking-1");
+  assert.deepEqual(payload.range.startDate, new Date(2026, 3, 10));
+  assert.deepEqual(payload.range.endDate, new Date(2026, 3, 12));
+  assert.equal(payload.range.numDays, 2);
+
+  assert.throws(
+    () => declineOverlappingBookingsTest.normalizeOverlapPayload({
+      assetId: "asset-1",
+      selectedBookingId: "booking-1",
+    }),
+    /Missing required fields/,
+  );
+});
+
+test("decline overlap summary classifies partial mirror failures", () => {
+  const summary = declineOverlappingBookingsTest.summarizeDeclineResults([
+    { bookingId: "selected", status: "skipped_selected" },
+    { bookingId: "declined", status: "declined" },
+    {
+      bookingId: "partial",
+      status: "declined_with_missing_mirrors",
+      missing: ["renterChat"],
+    },
+    { bookingId: "failed", status: "failed" },
+  ]);
+
+  assert.deepEqual(summary, {
+    declinedCount: 2,
+    skippedCount: 1,
+    missingMirrorCount: 1,
+    errorCount: 1,
+  });
 });

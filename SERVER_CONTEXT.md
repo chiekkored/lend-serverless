@@ -255,8 +255,19 @@ Reality:
 | `verifyToken` | `assets/{assetId}/bookings/{bookingId}` | none |
 | `verifyAndMark` | both booking copies | both booking copies, both `events` subcollections, `chats/{chatId}/messages`, owner/renter `userChats`, then owner `userChats` archive on return |
 | `confirmBooking` | `assets/{assetId}/bookings/{bookingId}` | both booking copies, `chats/{chatId}/messages/{messageId}`, renter `userChats`, owner `userChats` |
-| `declineOverlappingBookings` | query over `assets/{assetId}/bookings` | matching asset bookings, matching user bookings, renter `userChats` |
+| `declineOverlappingBookings` | query over `assets/{assetId}/bookings` | matching asset bookings, matching user bookings when present, renter `userChats` when present |
 | `syncUserMetadata` inactive | `users`, `users/{uid}/bookings`, `collectionGroup(bookings)`, `userChats/{uid}/chats` | same documents when stale |
+
+### Document Ownership
+
+| Data | Canonical write owner | Mirrors / side effects | Repair status |
+|---|---|---|---|
+| Booking request | `createBookingRequest` | asset booking, renter booking, chat root, user chat summaries, owner pending count | transactional callable write |
+| Booking confirmation | `confirmBooking` | both booking mirrors, deterministic system chat, pending count decrement, overlap task enqueue | selected booking transactional; overlap cleanup async |
+| Overlap decline | `declineOverlappingBookings` | asset booking, user booking when present, renter chat when present | structured partial results; missing optional mirrors no longer block asset decline |
+| QR handover/return | `verifyAndMark` | both booking mirrors, deterministic events/messages, owner chat archive on return | valid retries are idempotent; no durable retry queue |
+| Review closeout | `submitBookingReview` | rating doc, asset aggregate, both booking mirrors, renter chat archive | transactional review write; rating message cleanup follows transaction |
+| User metadata snapshots | inactive `syncUserMetadata` design | booking and chat participant snapshots | not active; redesign or remove before relying on it |
 
 ### Data Model Implication
 
@@ -487,14 +498,11 @@ Lifecycle chat messages now use deterministic message IDs, and a repeated valid 
 - return flow emits multiple side effects without durable orchestration
 - overlap decline retries depend on Cloud Tasks and still need automated coverage to stay reliable
 
-### 6. Batch Failure Fragility
+### 6. Partial Mirror Repair Is Still Limited
 
-`declineBooking` assumes:
+`declineBooking` no longer requires every optional mirror to exist before declining the asset-side booking. It reports missing user booking and renter chat mirrors in structured results.
 
-- user booking doc exists
-- renter chat doc exists
-
-If one is missing, the whole batch for that booking fails. The task continues, but the single booking remains pending.
+The remaining limitation is that it does not recreate missing mirrors or enqueue a repair job.
 
 ## 9. Scalability Audit
 

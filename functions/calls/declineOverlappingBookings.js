@@ -3,8 +3,7 @@ const admin = require("firebase-admin");
 const {
   BOOKING_STATUS,
   CHAT_STATUS,
-  parseFirestoreDate,
-  normalizeToDay,
+  normalizeBookingRange,
 } = require("../utils/booking.util");
 const { verifyCloudTaskRequest } = require("../utils/task.util");
 
@@ -40,36 +39,34 @@ exports.declineOverlappingBookings = functions.https.onRequest(async (request, r
     return response.status(400).send("Invalid payload");
   }
 
-  const { assetId, selectedBookingId, startDate, endDate } = payload;
+  let normalizedPayload;
 
-  if (!assetId || !selectedBookingId || !startDate || !endDate) {
-    console.error("[declineOverlappingBookings] Missing required fields");
-    return response.status(400).send("Missing required fields");
+  try {
+    normalizedPayload = normalizeOverlapPayload(payload);
+  } catch (payloadError) {
+    console.error(`[declineOverlappingBookings] Invalid payload: ${payloadError.message}`);
+    return response.status(400).send(payloadError.message);
   }
 
   try {
+    const { assetId, selectedBookingId, range } = normalizedPayload;
     console.log(
       `[declineOverlappingBookings] Processing asset=${assetId}, skipping=${selectedBookingId}`,
     );
-
-    // Convert timestamps
-    const startDateObj = normalizeToDay(parseFirestoreDate(startDate));
-    const endDateObj = normalizeToDay(parseFirestoreDate(endDate));
 
     // Find all pending bookings that overlap with confirmed booking's date range
     const overlappingQuery = await db
       .collection("assets")
       .doc(assetId)
       .collection("bookings")
-      .where("startDate", "<", admin.firestore.Timestamp.fromDate(endDateObj))
-      .where("endDate", ">", admin.firestore.Timestamp.fromDate(startDateObj))
+      .where("startDate", "<", admin.firestore.Timestamp.fromDate(range.endDate))
+      .where("endDate", ">", admin.firestore.Timestamp.fromDate(range.startDate))
       .where("status", "==", BOOKING_STATUS.pending)
       .get();
 
     console.log(`[declineOverlappingBookings] Found ${overlappingQuery.docs.length} overlapping pending bookings`);
 
-    let declinedCount = 0;
-    let errorCount = 0;
+    const results = [];
 
     // Process each overlapping booking
     for (const doc of overlappingQuery.docs) {
@@ -80,34 +77,41 @@ exports.declineOverlappingBookings = functions.https.onRequest(async (request, r
       // Skip the selected booking that was just confirmed
       if (bookingId === selectedBookingId) {
         console.log(`[declineOverlappingBookings] Skipping confirmed booking ${bookingId}`);
+        results.push({ bookingId, status: "skipped_selected" });
         continue;
       }
 
       try {
-        await declineBooking({
+        const result = await declineBooking({
           assetId,
           bookingId,
           renterId,
           ownerId: bookingData.asset?.owner?.uid,
           chatId: bookingData.chatId,
         });
-        declinedCount++;
+        results.push(result);
       } catch (declineError) {
         console.error(`[declineOverlappingBookings] Failed to decline booking ${bookingId}: ${declineError.message}`);
-        errorCount++;
+        results.push({
+          bookingId,
+          status: "failed",
+          error: declineError.message,
+        });
         // Continue with next booking instead of failing entire task
       }
     }
 
+    const summary = summarizeDeclineResults(results);
+
     console.log(
-      `[declineOverlappingBookings] Completed: declined=${declinedCount}, errors=${errorCount}`,
+      `[declineOverlappingBookings] Completed: declined=${summary.declinedCount}, errors=${summary.errorCount}`,
     );
 
     // Return 200 to mark task as successful even if some declines failed
     return response.status(200).json({
       success: true,
-      declinedCount,
-      errorCount,
+      ...summary,
+      results,
     });
   } catch (error) {
     console.error(`[declineOverlappingBookings] Error processing task: ${error.message}`);
@@ -125,48 +129,97 @@ exports.declineOverlappingBookings = functions.https.onRequest(async (request, r
 async function declineBooking({ assetId, bookingId, renterId, ownerId, chatId }) {
   const db = admin.firestore();
 
-  return new Promise(async (resolve, reject) => {
-    try {
-      // Use batch write for multiple updates (non-transactional is acceptable here)
-      const batch = db.batch();
+  if (!assetId || !bookingId || !renterId) {
+    throw new Error("Missing assetId, bookingId, or renterId");
+  }
 
-      const assetBookingRef = db.doc(`assets/${assetId}/bookings/${bookingId}`);
-      const userBookingRef = db.doc(`users/${renterId}/bookings/${bookingId}`);
-      const chatRef = db.doc(`userChats/${renterId}/chats/${chatId}`);
-      const ownerAssetMirrorRef = ownerId ? db.doc(`users/${ownerId}/assets/${assetId}`) : null;
+  const batch = db.batch();
+  const assetBookingRef = db.doc(`assets/${assetId}/bookings/${bookingId}`);
+  const userBookingRef = db.doc(`users/${renterId}/bookings/${bookingId}`);
+  const chatRef = chatId ? db.doc(`userChats/${renterId}/chats/${chatId}`) : null;
+  const ownerAssetMirrorRef = ownerId ? db.doc(`users/${ownerId}/assets/${assetId}`) : null;
+  const refsToRead = [assetBookingRef, userBookingRef, ...(chatRef ? [chatRef] : [])];
+  const [assetBookingSnap, userBookingSnap, chatSnap] = await db.getAll(...refsToRead);
+  const now = admin.firestore?.FieldValue?.serverTimestamp() || new Date();
+  const missing = [];
 
-      // Decline booking in asset collection
-      batch.update(assetBookingRef, {
-        status: BOOKING_STATUS.declined,
-        lastUpdated: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),
-      });
+  if (!assetBookingSnap.exists) {
+    throw new Error("Asset booking mirror missing");
+  }
 
-      // Decline booking in user collection
-      batch.update(userBookingRef, {
-        status: BOOKING_STATUS.declined,
-        lastUpdated: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),
-      });
-
-      // Archive chat
-      batch.update(chatRef, {
-        status: CHAT_STATUS.archived,
-        lastUpdated: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),
-      });
-
-      if (ownerAssetMirrorRef) {
-        batch.set(
-          ownerAssetMirrorRef,
-          { pendingBookingCount: admin.firestore.FieldValue.increment(-1) },
-          { merge: true },
-        );
-      }
-
-      await batch.commit();
-
-      console.log(`[declineBooking] Declined booking ${bookingId}`);
-      resolve();
-    } catch (error) {
-      reject(error);
-    }
+  batch.update(assetBookingRef, {
+    status: BOOKING_STATUS.declined,
+    lastUpdated: now,
   });
+
+  if (userBookingSnap.exists) {
+    batch.update(userBookingRef, {
+      status: BOOKING_STATUS.declined,
+      lastUpdated: now,
+    });
+  } else {
+    missing.push("userBooking");
+  }
+
+  if (chatRef && chatSnap?.exists) {
+    batch.update(chatRef, {
+      status: CHAT_STATUS.archived,
+      lastUpdated: now,
+    });
+  } else if (chatRef) {
+    missing.push("renterChat");
+  } else {
+    missing.push("chatId");
+  }
+
+  if (ownerAssetMirrorRef) {
+    batch.set(
+      ownerAssetMirrorRef,
+      { pendingBookingCount: admin.firestore.FieldValue.increment(-1) },
+      { merge: true },
+    );
+  }
+
+  await batch.commit();
+
+  console.log(`[declineBooking] Declined booking ${bookingId}`);
+  return {
+    bookingId,
+    status: missing.length > 0 ? "declined_with_missing_mirrors" : "declined",
+    missing,
+  };
 }
+
+function normalizeOverlapPayload(payload = {}) {
+  const { assetId, selectedBookingId, startDate, endDate } = payload;
+
+  if (!assetId || !selectedBookingId || !startDate || !endDate) {
+    throw new Error("Missing required fields");
+  }
+
+  return {
+    assetId,
+    selectedBookingId,
+    range: normalizeBookingRange({ startDate, endDate }),
+  };
+}
+
+function summarizeDeclineResults(results) {
+  return {
+    declinedCount: results.filter(
+      (result) =>
+        result.status === "declined" ||
+        result.status === "declined_with_missing_mirrors",
+    ).length,
+    skippedCount: results.filter((result) => result.status === "skipped_selected").length,
+    missingMirrorCount: results.filter(
+      (result) => result.status === "declined_with_missing_mirrors",
+    ).length,
+    errorCount: results.filter((result) => result.status === "failed").length,
+  };
+}
+
+exports._test = {
+  normalizeOverlapPayload,
+  summarizeDeclineResults,
+};
