@@ -3,9 +3,7 @@ const { throwAndLogHttpsError } = require("../utils/error.util");
 const {
   BOOKING_STATUS,
   CHAT_STATUS,
-  parseFirestoreDate,
-  normalizeToDay,
-  exclusiveDayCount,
+  normalizeBookingRange,
 } = require("../utils/booking.util");
 
 exports.createBookingRequest = async (request) => {
@@ -21,24 +19,10 @@ exports.createBookingRequest = async (request) => {
   }
 
   const renterId = auth.uid;
-  const startDate = parseFirestoreDate(startDateMs);
-  const endDate = parseFirestoreDate(endDateMs);
-
-  if (!(startDate instanceof Date) || Number.isNaN(startDate.getTime())) {
-    throwAndLogHttpsError("invalid-argument", "Invalid startDateMs");
-  }
-
-  if (!(endDate instanceof Date) || Number.isNaN(endDate.getTime())) {
-    throwAndLogHttpsError("invalid-argument", "Invalid endDateMs");
-  }
-
-  const normalizedStart = normalizeToDay(startDate);
-  const normalizedEnd = normalizeToDay(endDate);
-
-  const numDays = exclusiveDayCount(normalizedStart, normalizedEnd);
-  if (numDays < 1) {
-    throwAndLogHttpsError("invalid-argument", "End date must be after start date");
-  }
+  const bookingRange = normalizeBookingRange({
+    startDate: startDateMs,
+    endDate: endDateMs,
+  });
 
   if (typeof totalPrice !== "number" || totalPrice <= 0) {
     throwAndLogHttpsError("invalid-argument", "Invalid totalPrice");
@@ -77,8 +61,8 @@ exports.createBookingRequest = async (request) => {
     .collection("assets")
     .doc(assetId)
     .collection("bookings")
-    .where("startDate", "<", admin.firestore.Timestamp.fromDate(normalizedEnd))
-    .where("endDate", ">", admin.firestore.Timestamp.fromDate(normalizedStart))
+    .where("startDate", "<", admin.firestore.Timestamp.fromDate(bookingRange.endDate))
+    .where("endDate", ">", admin.firestore.Timestamp.fromDate(bookingRange.startDate))
     .where("status", "==", BOOKING_STATUS.confirmed)
     .limit(1)
     .get();
@@ -106,9 +90,9 @@ exports.createBookingRequest = async (request) => {
     chatId: chatRef.id,
     asset: assetSnapshot,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    startDate: admin.firestore.Timestamp.fromDate(normalizedStart),
-    endDate: admin.firestore.Timestamp.fromDate(normalizedEnd),
-    numDays,
+    startDate: admin.firestore.Timestamp.fromDate(bookingRange.startDate),
+    endDate: admin.firestore.Timestamp.fromDate(bookingRange.endDate),
+    numDays: bookingRange.numDays,
     payment: null,
     renter: renterSnapshot,
     status: BOOKING_STATUS.pending,

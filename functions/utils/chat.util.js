@@ -6,6 +6,7 @@ exports.sendSystemChatMessage = async ({
   renterId,
   messageText,
   messageType,
+  messageId,
   includeLastMessage = true,
   includeOwner = true,
   includeRenter = true,
@@ -13,7 +14,8 @@ exports.sendSystemChatMessage = async ({
   const firestore = admin.firestore();
   const FieldValue = admin.firestore.FieldValue;
 
-  const chatsRef = firestore.collection("chats").doc(chatId).collection("messages").doc();
+  const messagesCollection = firestore.collection("chats").doc(chatId).collection("messages");
+  const chatsRef = messageId ? messagesCollection.doc(messageId) : messagesCollection.doc();
 
   const ownerUserChatRef = firestore.collection("userChats").doc(ownerId).collection("chats").doc(chatId);
 
@@ -39,7 +41,12 @@ exports.sendSystemChatMessage = async ({
   };
 
   await firestore.runTransaction(async (transaction) => {
-    transaction.set(chatsRef, messageData);
+    const existingMessage = messageId ? await transaction.get(chatsRef) : null;
+
+    if (!existingMessage?.exists) {
+      transaction.set(chatsRef, messageData);
+    }
+
     if (includeOwner) transaction.update(ownerUserChatRef, chatUpdateData);
     if (includeRenter) transaction.update(renterUserChatRef, chatUpdateData);
   });

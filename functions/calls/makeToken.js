@@ -6,6 +6,7 @@ const {
   getBookingRefs,
   assertBookingParticipant,
   assertConfirmedBooking,
+  assertCanonicalBookingRange,
   buildTokenUpdateData,
 } = require("../utils/booking.util");
 
@@ -40,6 +41,7 @@ exports.makeToken = async (request) => {
   const booking = bookingSnap.data();
   assertBookingParticipant(auth.uid, booking);
   assertConfirmedBooking(booking);
+  assertCanonicalBookingRange(booking);
 
   if (booking?.renter?.uid !== userId) {
     throwAndLogHttpsError("invalid-argument", "Booking renter does not match request");

@@ -333,7 +333,7 @@ The richer lifecycle from the product brief is not implemented in this repositor
 
 Conclusion:
 
-The booking engine is only partially centralized. Confirmation and handover/return markers are server-managed, but the broader lifecycle contract is absent. If the mobile app currently manages more status transitions directly, this backend is not yet the sole source of truth.
+The backend now enforces the canonical booking range contract through shared helpers and owns the critical lifecycle mutations used by the mobile app. The broader lifecycle contract is still represented by a mix of status, token, handover, return, and review fields rather than one explicit state machine.
 
 ## 6. QR / Token Trust System
 
@@ -472,23 +472,18 @@ If a post-transaction chat write fails:
 
 - booking state is mutated
 - event logs are written
-- UX messaging is missing or partially missing
+- UX messaging may be missing until the same valid QR action is retried
 
-The code has no compensating action or retry queue.
+Lifecycle chat messages now use deterministic message IDs, and a repeated valid QR action is treated as a successful idempotent retry. There is still no durable retry queue for post-mutation side effects.
 
 ### 4. Misleading Function Result Contract
 
-`confirmBooking` returns:
+`confirmBooking` now reports `phase2: "enqueued"` or `phase2: "enqueue_failed"` depending on the Cloud Tasks enqueue result. Broader structured operational reporting is still thin.
 
-- `phase1: "completed"`
-- `phase2: "enqueued"`
+### 5. Side-Effect Idempotency Is Partial
 
-even if enqueue fails, because the return payload is static after the warning path. That is inaccurate operational reporting.
-
-### 5. Non-Idempotent or Weakly Idempotent Side Effects
-
-- `verifyAndMark` blocks repeat marking by checking existing boolean status, which is acceptable
-- chat system messages are not deduplicated by business key
+- `verifyAndMark` accepts repeat valid scans after a booking action is already marked
+- core lifecycle chat messages are deduplicated by deterministic message IDs
 - return flow emits multiple side effects without durable orchestration
 - overlap decline retries depend on Cloud Tasks and still need automated coverage to stay reliable
 
@@ -573,7 +568,7 @@ If the mobile app expects backend-authoritative cancellation, payment confirmati
 
 1. Extend automated coverage around task and callable authorization contracts.
 2. Keep `verifyAndMark` and `verifyToken` on shared QR/token helpers whenever token or lifecycle semantics change.
-3. Move the remaining client-side lifecycle mutations behind backend authority.
+3. Keep canonical booking range enforcement in shared helpers for any new lifecycle callable.
 
 ### Priority 1: Consolidate Booking State Authority
 
@@ -587,7 +582,7 @@ If the mobile app expects backend-authoritative cancellation, payment confirmati
 8. Make function return payloads truthful about async outcomes.
 9. Introduce structured logging with correlation IDs: bookingId, assetId, renterId, taskId, actorId.
 10. Move post-transaction side effects into durable async jobs where partial failure matters.
-11. Add idempotency strategy for chat-side business events.
+11. Extend deterministic idempotency to any new chat-side business events.
 
 ### Priority 3: Lock Down Security Posture
 

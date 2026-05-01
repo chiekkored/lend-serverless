@@ -2,10 +2,16 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 
 const {
+  assertCanonicalBookingRange,
+  assertNotReturned,
+  assertPendingBooking,
   assertTokenActionAvailable,
   exclusiveDayCount,
+  getLifecycleMessageId,
   getCompletionFieldForAction,
+  isTokenActionCompleted,
   normalizeToDay,
+  normalizeBookingRange,
   addDays,
 } = require("../utils/booking.util");
 const { countPendingBookings } = require("../utils/pendingBookingCount.util");
@@ -46,6 +52,50 @@ test("normalizeToDay strips time", () => {
 
 test("addDays advances calendar days from the normalized date parts", () => {
   assert.deepEqual(addDays(new Date(2026, 3, 30, 16, 30), 1), new Date(2026, 4, 1));
+});
+
+test("normalizeBookingRange enforces exclusive-end canonical ranges", () => {
+  const range = normalizeBookingRange({
+    startDate: new Date(2026, 3, 10, 16, 30),
+    endDate: new Date(2026, 3, 12, 9, 15),
+  });
+
+  assert.deepEqual(range.startDate, new Date(2026, 3, 10));
+  assert.deepEqual(range.endDate, new Date(2026, 3, 12));
+  assert.equal(range.numDays, 2);
+
+  assert.throws(
+    () => normalizeBookingRange({
+      startDate: new Date(2026, 3, 12),
+      endDate: new Date(2026, 3, 10),
+    }),
+    /End date must be after start date/,
+  );
+});
+
+test("assertCanonicalBookingRange requires startDate, endDate, and matching numDays", () => {
+  assert.doesNotThrow(() => assertCanonicalBookingRange({
+    startDate: new Date(2026, 3, 10),
+    endDate: new Date(2026, 3, 12),
+    numDays: 2,
+  }));
+
+  assert.throws(
+    () => assertCanonicalBookingRange({
+      startDate: new Date(2026, 3, 10),
+      endDate: new Date(2026, 3, 12),
+    }),
+    /Booking must have startDate, endDate, and numDays/,
+  );
+
+  assert.throws(
+    () => assertCanonicalBookingRange({
+      startDate: new Date(2026, 3, 10),
+      endDate: new Date(2026, 3, 12),
+      numDays: 3,
+    }),
+    /Booking numDays does not match startDate\/endDate/,
+  );
 });
 
 test("countPendingBookings only counts pending booking documents", () => {
@@ -125,6 +175,8 @@ test("validateSignedQrToken rejects malformed, tampered, expired, and incomplete
 test("token action helpers map completion fields and reject completed actions consistently", () => {
   assert.equal(getCompletionFieldForAction("handover"), "handedOver");
   assert.equal(getCompletionFieldForAction("return"), "returned");
+  assert.equal(isTokenActionCompleted({ handedOver: { status: true } }, "handover"), true);
+  assert.equal(isTokenActionCompleted({ returned: { status: false } }, "return"), false);
   assert.throws(
     () => getCompletionFieldForAction("cancel"),
     /Invalid token action/,
@@ -139,4 +191,23 @@ test("token action helpers map completion fields and reject completed actions co
     () => assertTokenActionAvailable({ returned: { status: true } }, "return"),
     /return already completed/,
   );
+});
+
+test("lifecycle preconditions and message ids are deterministic", () => {
+  assert.doesNotThrow(() => assertPendingBooking({ status: "Pending" }));
+  assert.throws(
+    () => assertPendingBooking({ status: "Confirmed" }),
+    /Booking is no longer pending/,
+  );
+
+  assert.doesNotThrow(() => assertNotReturned({ returned: { status: false } }));
+  assert.throws(
+    () => assertNotReturned({ returned: { status: true } }),
+    /Booking already returned/,
+  );
+
+  assert.equal(getLifecycleMessageId("confirmed", "booking-1"), "booking-confirmed-booking-1");
+  assert.equal(getLifecycleMessageId("handover", "booking-1"), "booking-handover-booking-1");
+  assert.equal(getLifecycleMessageId("return", "booking-1"), "booking-return-booking-1");
+  assert.equal(getLifecycleMessageId("rating-prompt", "booking-1"), "booking-rating-prompt-booking-1");
 });

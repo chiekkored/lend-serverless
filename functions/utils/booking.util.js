@@ -39,6 +39,50 @@ function exclusiveDayCount(startDate, endDate) {
   return Math.floor((normalizedEnd.getTime() - normalizedStart.getTime()) / millisecondsPerDay);
 }
 
+function normalizeBookingRange({ startDate, endDate }) {
+  const parsedStart = parseFirestoreDate(startDate);
+  const parsedEnd = parseFirestoreDate(endDate);
+
+  if (!(parsedStart instanceof Date) || Number.isNaN(parsedStart.getTime())) {
+    throwAndLogHttpsError("invalid-argument", "Invalid startDate");
+  }
+
+  if (!(parsedEnd instanceof Date) || Number.isNaN(parsedEnd.getTime())) {
+    throwAndLogHttpsError("invalid-argument", "Invalid endDate");
+  }
+
+  const normalizedStart = normalizeToDay(parsedStart);
+  const normalizedEnd = normalizeToDay(parsedEnd);
+  const numDays = exclusiveDayCount(normalizedStart, normalizedEnd);
+
+  if (numDays < 1) {
+    throwAndLogHttpsError("invalid-argument", "End date must be after start date");
+  }
+
+  return {
+    startDate: normalizedStart,
+    endDate: normalizedEnd,
+    numDays,
+  };
+}
+
+function assertCanonicalBookingRange(booking) {
+  if (!booking?.startDate || !booking?.endDate || booking?.numDays == null) {
+    throwAndLogHttpsError("failed-precondition", "Booking must have startDate, endDate, and numDays");
+  }
+
+  const range = normalizeBookingRange({
+    startDate: booking.startDate,
+    endDate: booking.endDate,
+  });
+
+  if (!Number.isInteger(booking.numDays) || booking.numDays !== range.numDays) {
+    throwAndLogHttpsError("failed-precondition", "Booking numDays does not match startDate/endDate");
+  }
+
+  return range;
+}
+
 function addDays(date, days) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
 }
@@ -89,6 +133,18 @@ function assertQrScannerAuthorized({ authUid, action, booking }) {
 function assertConfirmedBooking(booking) {
   if (booking?.status !== BOOKING_STATUS.confirmed) {
     throwAndLogHttpsError("failed-precondition", "Booking must be confirmed");
+  }
+}
+
+function assertPendingBooking(booking) {
+  if (booking?.status !== BOOKING_STATUS.pending) {
+    throwAndLogHttpsError("failed-precondition", "Booking is no longer pending");
+  }
+}
+
+function assertNotReturned(booking) {
+  if (booking?.returned?.status === true) {
+    throwAndLogHttpsError("failed-precondition", "Booking already returned");
   }
 }
 
@@ -173,11 +229,23 @@ function getCompletionFieldForAction(action) {
   throwAndLogHttpsError("invalid-argument", "Invalid token action");
 }
 
-function assertTokenActionAvailable(booking, action) {
+function isTokenActionCompleted(booking, action) {
   const completionField = getCompletionFieldForAction(action);
-  if (booking?.[completionField]?.status === true) {
+  return booking?.[completionField]?.status === true;
+}
+
+function assertTokenActionAvailable(booking, action) {
+  if (isTokenActionCompleted(booking, action)) {
     throwAndLogHttpsError("already-exists", `${action} already completed for this booking`);
   }
+}
+
+function getLifecycleMessageId(eventName, bookingId) {
+  if (!bookingId) {
+    throwAndLogHttpsError("invalid-argument", "Missing bookingId");
+  }
+
+  return `booking-${eventName}-${bookingId}`;
 }
 
 module.exports = {
@@ -186,6 +254,8 @@ module.exports = {
   parseFirestoreDate,
   normalizeToDay,
   exclusiveDayCount,
+  normalizeBookingRange,
+  assertCanonicalBookingRange,
   addDays,
   getBookingRefs,
   getBookingActors,
@@ -193,8 +263,12 @@ module.exports = {
   assertBookingParticipant,
   assertQrScannerAuthorized,
   assertConfirmedBooking,
+  assertPendingBooking,
+  assertNotReturned,
   buildTokenUpdateData,
   getExpectedTokenForAction,
   getCompletionFieldForAction,
+  isTokenActionCompleted,
   assertTokenActionAvailable,
+  getLifecycleMessageId,
 };

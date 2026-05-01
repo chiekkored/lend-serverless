@@ -6,6 +6,8 @@ const {
   getBookingRefs,
   assertBookingParticipant,
   assertConfirmedBooking,
+  assertCanonicalBookingRange,
+  assertNotReturned,
   buildTokenUpdateData,
 } = require("../utils/booking.util");
 
@@ -43,6 +45,8 @@ exports.regenerateToken = async (request) => {
   const booking = bookingSnap.data();
   assertBookingParticipant(auth.uid, booking);
   assertConfirmedBooking(booking);
+  assertCanonicalBookingRange(booking);
+  assertNotReturned(booking);
 
   if (booking?.renter?.uid !== userId) {
     throwAndLogHttpsError("invalid-argument", "Booking renter does not match request");
@@ -67,10 +71,7 @@ exports.regenerateToken = async (request) => {
       throw new Error("Booking documents not found");
     }
 
-    // Check if booking is already returned (prevent double-regeneration)
-    if (userBookingSnap.data().returned?.status === true) {
-      throw new Error("Booking already returned. Cannot regenerate token.");
-    }
+    assertNotReturned(userBookingSnap.data());
 
     // Update both atomically
     transaction.update(userBookingRef, { tokens: tokenData.tokens });

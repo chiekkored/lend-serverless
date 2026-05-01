@@ -4,10 +4,13 @@ const { throwAndLogHttpsError } = require("../utils/error.util"); // Import the 
 const { validateSignedQrToken } = require("../utils/token.util");
 const {
   assertConfirmedBooking,
+  assertCanonicalBookingRange,
   assertQrScannerAuthorized,
-  assertTokenActionAvailable,
   CHAT_STATUS,
+  getCompletionFieldForAction,
   getExpectedTokenForAction,
+  getLifecycleMessageId,
+  isTokenActionCompleted,
 } = require("../utils/booking.util");
 
 exports.verifyAndMark = async (request) => {
@@ -19,7 +22,7 @@ exports.verifyAndMark = async (request) => {
   }
 
   const { payload, payloadB64 } = validateSignedQrToken({ token });
-  const { bookingId, userId, assetId, action, uuid, expiresAt } = payload;
+  const { bookingId, userId, assetId, action, uuid } = payload;
 
   // --- Firestore references ---
   const userBookingRef = admin.firestore().doc(`users/${userId}/bookings/${bookingId}`);
@@ -27,6 +30,7 @@ exports.verifyAndMark = async (request) => {
 
   let chatID = null;
   let ownerID = null;
+  let alreadyCompleted = false;
 
   // --- Run transaction ---
   await admin.firestore().runTransaction(async (tx) => {
@@ -45,6 +49,8 @@ exports.verifyAndMark = async (request) => {
     }
 
     assertConfirmedBooking(userBooking || assetBooking);
+    assertCanonicalBookingRange(userBooking);
+    assertCanonicalBookingRange(assetBooking);
     assertQrScannerAuthorized({
       authUid: auth.uid,
       action,
@@ -66,24 +72,26 @@ exports.verifyAndMark = async (request) => {
     }
 
     // --- Check if already marked ---
-    const fieldName = action === "handover" ? "handedOver" : "returned";
-    assertTokenActionAvailable(userBooking, action);
-    assertTokenActionAvailable(assetBooking, action);
+    const fieldName = getCompletionFieldForAction(action);
+    alreadyCompleted =
+      isTokenActionCompleted(userBooking, action) ||
+      isTokenActionCompleted(assetBooking, action);
 
     const now = admin.firestore.FieldValue?.serverTimestamp() || new Date();
 
-    // --- Update both booking documents ---
-    const updateData = {
-      [fieldName]: {
-        status: true,
-        updatedAt: now,
-        verifiedBy: auth.uid,
-      },
-      lastUpdated: now,
-    };
+    if (!alreadyCompleted) {
+      const updateData = {
+        [fieldName]: {
+          status: true,
+          updatedAt: now,
+          verifiedBy: auth.uid,
+        },
+        lastUpdated: now,
+      };
 
-    tx.update(userBookingRef, updateData);
-    tx.update(assetBookingRef, updateData);
+      tx.update(userBookingRef, updateData);
+      tx.update(assetBookingRef, updateData);
+    }
 
     // Optional event logging (recommended for audit trail)
     const event = {
@@ -92,8 +100,8 @@ exports.verifyAndMark = async (request) => {
       verifiedAt: now,
       tokenUuid: uuid,
     };
-    tx.set(userBookingRef.collection("events").doc(), event);
-    tx.set(assetBookingRef.collection("events").doc(), event);
+    tx.set(userBookingRef.collection("events").doc(`${action}-${uuid}`), event, { merge: true });
+    tx.set(assetBookingRef.collection("events").doc(`${action}-${uuid}`), event, { merge: true });
   });
 
   let systemMessageText = "";
@@ -111,6 +119,7 @@ exports.verifyAndMark = async (request) => {
       renterId: userId,
       messageText: systemMessageText,
       messageType: "system", // MessageType.system for general updates
+      messageId: getLifecycleMessageId(action, bookingId),
       includeLastMessage: false,
     });
   }
@@ -123,6 +132,7 @@ exports.verifyAndMark = async (request) => {
       renterId: userId,
       messageText: "You can now rate your experience with this booking!",
       messageType: "rating",
+      messageId: getLifecycleMessageId("rating-prompt", bookingId),
       includeOwner: false,
     });
 
@@ -136,6 +146,9 @@ exports.verifyAndMark = async (request) => {
 
   return {
     success: true,
-    message: `Booking ${bookingId} successfully marked as ${action}`,
+    alreadyCompleted,
+    message: alreadyCompleted
+      ? `Booking ${bookingId} was already marked as ${action}`
+      : `Booking ${bookingId} successfully marked as ${action}`,
   };
 };

@@ -5,7 +5,10 @@ const {
   BOOKING_STATUS,
   buildTokenUpdateData,
   assertBookingOwner,
+  assertCanonicalBookingRange,
+  assertPendingBooking,
   getBookingActors,
+  getLifecycleMessageId,
 } = require("../utils/booking.util");
 const { getTaskServiceAccountEmail } = require("../utils/task.util");
 
@@ -52,14 +55,12 @@ exports.confirmBooking = async (request) => {
 
       const booking = selectedSnap.data();
       assertBookingOwner(context.auth.uid, booking);
+      assertCanonicalBookingRange(booking);
+      assertPendingBooking(booking);
       const { ownerId } = getBookingActors(booking);
 
       if (booking?.renter?.uid !== renterId) {
         throw new Error("Booking renter does not match request");
-      }
-
-      if (booking.status !== BOOKING_STATUS.pending) {
-        throw new Error("Booking is no longer pending");
       }
 
       const tokenData = buildTokenUpdateData({
@@ -96,13 +97,14 @@ exports.confirmBooking = async (request) => {
       // Notify renter that booking was confirmed
       const chatId = booking.chatId;
       if (chatId) {
-        const messageRef = db.collection("chats").doc(chatId).collection("messages").doc();
+        const messageId = getLifecycleMessageId("confirmed", bookingId);
+        const messageRef = db.collection("chats").doc(chatId).collection("messages").doc(messageId);
 
         const messageText =
           "Booking Confirmed!\n\nYou may now view the complete information of the owner details by clicking the information button above.";
 
         transaction.set(messageRef, {
-          id: messageRef.id,
+          id: messageId,
           text: messageText,
           senderId: "", // System message
           createdAt: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),
