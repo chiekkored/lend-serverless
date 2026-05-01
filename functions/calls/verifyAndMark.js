@@ -1,63 +1,25 @@
-const functions = require("firebase-functions");
 const admin = require("firebase-admin");
-const crypto = require("crypto");
-const dotenv = require("dotenv");
 const { sendSystemChatMessage } = require("../utils/chat.util"); // Import the chat utility
 const { throwAndLogHttpsError } = require("../utils/error.util"); // Import the error utility
+const { validateSignedQrToken } = require("../utils/token.util");
 const {
   assertConfirmedBooking,
   assertQrScannerAuthorized,
+  assertTokenActionAvailable,
+  CHAT_STATUS,
   getExpectedTokenForAction,
 } = require("../utils/booking.util");
 
-dotenv.config();
-
-const SECRET = process.env.QR_SECRET;
-if (!SECRET) throw new Error("Missing QR_SECRET in .env");
-
 exports.verifyAndMark = async (request) => {
-  const { token } = request.data;
+  const { token } = request.data || {};
   const auth = request.auth;
 
   if (!auth) {
     throwAndLogHttpsError("permission-denied", "User must be authenticated");
   }
 
-  if (!token) {
-    throwAndLogHttpsError("invalid-argument", "Token is required");
-  }
-
-  // --- Decode and verify token ---
-  const [payloadB64, sig] = token.split(".");
-  if (!payloadB64 || !sig) {
-    throwAndLogHttpsError("invalid-argument", "Malformed token");
-  }
-
-  // Recreate the expected signature using HMAC and compare with the provided signature
-  const expectedSig = crypto.createHmac("sha256", SECRET).update(payloadB64).digest("hex");
-  if (expectedSig !== sig) {
-    throwAndLogHttpsError("permission-denied", "Invalid token signature");
-  }
-
-  // Parse payload
-  let payload;
-  try {
-    payload = JSON.parse(Buffer.from(payloadB64, "base64").toString());
-  } catch (error) {
-    throwAndLogHttpsError("invalid-argument", "Invalid token payload", error);
-  }
-
+  const { payload, payloadB64 } = validateSignedQrToken({ token });
   const { bookingId, userId, assetId, action, uuid, expiresAt } = payload;
-
-  if (!bookingId || !userId || !assetId || !action || !uuid) {
-    throwAndLogHttpsError("invalid-argument", "Invalid token payload");
-  }
-
-  // --- Check token expiry ---
-  const now = Date.now();
-  if (expiresAt && now > expiresAt) {
-    throwAndLogHttpsError("deadline-exceeded", "QR token expired");
-  }
 
   // --- Firestore references ---
   const userBookingRef = admin.firestore().doc(`users/${userId}/bookings/${bookingId}`);
@@ -99,18 +61,14 @@ exports.verifyAndMark = async (request) => {
     }
 
     const expectedPayloadB64 = expectedToken.split(".")[0];
-    const currentPayloadB64 = token.split(".")[0];
-    if (expectedPayloadB64 !== currentPayloadB64) {
+    if (expectedPayloadB64 !== payloadB64) {
       throwAndLogHttpsError("permission-denied", "Invalid token payload");
     }
 
     // --- Check if already marked ---
     const fieldName = action === "handover" ? "handedOver" : "returned";
-    const existing = userBooking?.[fieldName]?.status || assetBooking?.[fieldName]?.status;
-
-    if (existing) {
-      throwAndLogHttpsError("failed-precondition", `Booking already marked as ${action}`);
-    }
+    assertTokenActionAvailable(userBooking, action);
+    assertTokenActionAvailable(assetBooking, action);
 
     const now = admin.firestore.FieldValue?.serverTimestamp() || new Date();
 
@@ -172,7 +130,7 @@ exports.verifyAndMark = async (request) => {
     const ownerUserChatRef = admin.firestore().collection("userChats").doc(ownerID).collection("chats").doc(chatID);
 
     await admin.firestore().runTransaction(async (tx) => {
-      tx.update(ownerUserChatRef, { status: "Archived" });
+      tx.update(ownerUserChatRef, { status: CHAT_STATUS.archived });
     });
   }
 

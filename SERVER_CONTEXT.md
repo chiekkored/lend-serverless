@@ -392,11 +392,11 @@ It checks:
 - booking is in the correct lifecycle state
 - action not already marked
 
-The remaining gap is maintainability: `verifyToken` and `verifyAndMark` still need ongoing lockstep coverage so future token changes do not drift again.
+Token parsing, signature validation, expiry checks, and completed-action checks now live in shared helpers used by both `verifyToken` and `verifyAndMark`.
 
 ### Remaining Trust Concern
 
-The immediate verification gap between `verifyToken` and `verifyAndMark` has been closed, but both paths are still fragile enough that they need automated contract coverage any time token semantics change.
+The immediate verification gap between `verifyToken` and `verifyAndMark` has been closed. Future token semantics should continue to be covered at the shared helper level and, where practical, with callable-level tests.
 
 ### Token Expiry Concerns
 
@@ -571,8 +571,8 @@ If the mobile app expects backend-authoritative cancellation, payment confirmati
 
 ### Priority 0: Fix Integrity Breakers Immediately
 
-1. Extend automated coverage around the current task, token, and callable authorization contracts.
-2. Keep `verifyAndMark` and `verifyToken` behavior in lockstep whenever token or lifecycle semantics change.
+1. Extend automated coverage around task and callable authorization contracts.
+2. Keep `verifyAndMark` and `verifyToken` on shared QR/token helpers whenever token or lifecycle semantics change.
 3. Move the remaining client-side lifecycle mutations behind backend authority.
 
 ### Priority 1: Consolidate Booking State Authority

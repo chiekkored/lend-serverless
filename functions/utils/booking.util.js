@@ -167,6 +167,19 @@ function getExpectedTokenForAction(tokens, action) {
   return null;
 }
 
+function getCompletionFieldForAction(action) {
+  if (action === "handover") return "handedOver";
+  if (action === "return") return "returned";
+  throwAndLogHttpsError("invalid-argument", "Invalid token action");
+}
+
+function assertTokenActionAvailable(booking, action) {
+  const completionField = getCompletionFieldForAction(action);
+  if (booking?.[completionField]?.status === true) {
+    throwAndLogHttpsError("already-exists", `${action} already completed for this booking`);
+  }
+}
+
 module.exports = {
   BOOKING_STATUS,
   CHAT_STATUS,
@@ -182,4 +195,6 @@ module.exports = {
   assertConfirmedBooking,
   buildTokenUpdateData,
   getExpectedTokenForAction,
+  getCompletionFieldForAction,
+  assertTokenActionAvailable,
 };

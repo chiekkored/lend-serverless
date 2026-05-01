@@ -1,6 +1,6 @@
 const admin = require("firebase-admin");
 const { throwAndLogHttpsError } = require("../utils/error.util");
-const { getBookingRefs } = require("../utils/booking.util");
+const { CHAT_STATUS, getBookingRefs } = require("../utils/booking.util");
 
 exports.submitBookingReview = async (request) => {
   const auth = request.auth;
@@ -109,7 +109,7 @@ exports.submitBookingReview = async (request) => {
     });
 
     transaction.set(renterUserChatRef, {
-      status: "Archived",
+      status: CHAT_STATUS.archived,
     }, { merge: true });
   });
 

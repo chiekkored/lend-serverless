@@ -1,18 +1,12 @@
-const functions = require("firebase-functions");
 const admin = require("firebase-admin");
-const crypto = require("crypto");
-const dotenv = require("dotenv");
 const { throwAndLogHttpsError } = require("../utils/error.util");
+const { validateSignedQrToken } = require("../utils/token.util");
 const {
   assertConfirmedBooking,
   assertQrScannerAuthorized,
+  assertTokenActionAvailable,
   getExpectedTokenForAction,
 } = require("../utils/booking.util");
-
-dotenv.config();
-
-const SECRET = process.env.QR_SECRET;
-if (!SECRET) throw new Error("Missing QR_SECRET in .env");
 
 /**
  * Verifies a QR token without altering any booking status.
@@ -22,46 +16,14 @@ if (!SECRET) throw new Error("Missing QR_SECRET in .env");
  */
 exports.verifyToken = async (request) => {
   const auth = request.auth;
-  const { token } = request.data;
+  const { token } = request.data || {};
 
   if (!auth) {
     throwAndLogHttpsError("permission-denied", "User must be authenticated");
   }
 
-  if (!token) {
-    throwAndLogHttpsError("invalid-argument", "Token is required");
-  }
-
-  // --- Split and verify token signature ---
-  const [payloadB64, sig] = token.split(".");
-  if (!payloadB64 || !sig) {
-    throwAndLogHttpsError("invalid-argument", "Malformed token");
-  }
-
-  const expectedSig = crypto.createHmac("sha256", SECRET).update(payloadB64).digest("hex");
-  if (expectedSig !== sig) {
-    throwAndLogHttpsError("permission-denied", "Invalid token signature");
-  }
-
-  // --- Decode payload ---
-  let payload;
-  try {
-    payload = JSON.parse(Buffer.from(payloadB64, "base64").toString());
-  } catch (e) {
-    throwAndLogHttpsError("invalid-argument", "Invalid token payload", e);
-  }
-
+  const { payload, nowMs } = validateSignedQrToken({ token });
   const { bookingId, userId, assetId, action, uuid, expiresAt } = payload;
-
-  if (!bookingId || !userId || !assetId || !action || !uuid) {
-    throwAndLogHttpsError("invalid-argument", "Missing token fields");
-  }
-
-  // --- Check expiration ---
-  const now = Date.now();
-  if (expiresAt && now > expiresAt) {
-    throwAndLogHttpsError("deadline-exceeded", "QR token expired");
-  }
 
   // --- Check Firestore booking existence ---
   const assetBookingRef = admin.firestore().doc(`assets/${assetId}/bookings/${bookingId}`);
@@ -93,10 +55,7 @@ exports.verifyToken = async (request) => {
     throwAndLogHttpsError("permission-denied", "Token mismatch or outdated QR");
   }
 
-  const completionField = action === "handover" ? "handedOver" : "returned";
-  if (booking?.[completionField]?.status === true) {
-    throwAndLogHttpsError("already-exists", `${action} already completed for this booking`);
-  }
+  assertTokenActionAvailable(booking, action);
 
   // --- Return valid token info ---
   return {
@@ -109,7 +68,7 @@ exports.verifyToken = async (request) => {
       assetId,
       action,
       expiresAt,
-      remainingMs: expiresAt ? expiresAt - now : null,
+      remainingMs: expiresAt ? expiresAt - nowMs : null,
     },
   };
 };
