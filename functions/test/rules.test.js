@@ -11,6 +11,8 @@ const {
 const {
   deleteDoc,
   doc,
+  getDocs,
+  collection,
   getDoc,
   setDoc,
   updateDoc,
@@ -93,6 +95,14 @@ test("booking reads are limited to renter and owner participants", async () => {
   await assertSucceeds(getDoc(doc(ownerDb, "users/renter/bookings/booking-1")));
   await assertSucceeds(getDoc(doc(renterDb, "users/renter/bookings/booking-1")));
   await assertFails(getDoc(doc(otherDb, "users/renter/bookings/booking-1")));
+});
+
+test("users can list only their own booking mirror collection", async () => {
+  const renterDb = testEnv.authenticatedContext("renter").firestore();
+  const otherDb = testEnv.authenticatedContext("other").firestore();
+
+  await assertSucceeds(getDocs(collection(renterDb, "users/renter/bookings")));
+  await assertFails(getDocs(collection(otherDb, "users/renter/bookings")));
 });
 
 test("user booking updates cannot mutate lifecycle fields", async () => {

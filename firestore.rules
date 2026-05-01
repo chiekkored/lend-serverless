@@ -52,7 +52,7 @@ service cloud.firestore {
       }
 
       match /bookings/{bookingId} {
-        allow read: if bookingParticipants(resource.data);
+        allow read: if isSelf(uid) || bookingParticipants(resource.data);
         allow create: if false;
         allow update: if isSelf(uid) && bookingIdentityUnchanged();
         allow delete: if false;
