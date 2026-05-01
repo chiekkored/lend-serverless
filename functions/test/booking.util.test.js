@@ -6,6 +6,7 @@ const {
   normalizeToDay,
   addDays,
 } = require("../utils/booking.util");
+const { countPendingBookings } = require("../utils/pendingBookingCount.util");
 
 test("exclusiveDayCount excludes the return boundary day", () => {
   assert.equal(
@@ -37,4 +38,17 @@ test("normalizeToDay strips time", () => {
 
 test("addDays advances calendar days from the normalized date parts", () => {
   assert.deepEqual(addDays(new Date(2026, 3, 30, 16, 30), 1), new Date(2026, 4, 1));
+});
+
+test("countPendingBookings only counts pending booking documents", () => {
+  assert.equal(
+    countPendingBookings([
+      { status: "Pending" },
+      { status: "Confirmed" },
+      { status: "Pending" },
+      { status: "Declined" },
+      {},
+    ]),
+    2,
+  );
 });

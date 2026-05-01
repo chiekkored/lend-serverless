@@ -14,7 +14,7 @@ The implementation is materially smaller than the intended product scope. There 
 - asynchronously decline overlapping pending bookings
 - send system chat messages as booking side effects
 
-The code shows a backend that is directionally correct in one important way: critical booking confirmation is server-side, not purely client-side. It is still not production-grade. The largest remaining issues are duplicated booking state across two Firestore locations, incomplete lifecycle centralization, minimal operational observability, and security rules that now exist but still need emulator-backed validation.
+The code shows a backend that is directionally correct in one important way: critical booking confirmation is server-side, not purely client-side. It is still not production-grade. The largest remaining issues are duplicated booking state across two Firestore locations, incomplete lifecycle centralization, minimal operational observability, and callable/task behavior that still needs broader contract coverage.
 
 ## 2. Architecture Overview
 
@@ -27,6 +27,8 @@ The code shows a backend that is directionally correct in one important way: cri
 - `firebase.json`: functions source and emulator config
 - `firestore.rules`: Firestore security contract
 - `storage.rules`: Cloud Storage rules
+- `firestore.indexes.json`: source-controlled Firestore index definitions
+- `functions/test/rules.test.js`: emulator-backed Firestore and Storage rules scenarios
 
 ### Runtime and Deployment Style
 
@@ -43,6 +45,7 @@ The code shows a backend that is directionally correct in one important way: cri
 - Functions call `dotenv.config()`, implying local `.env` usage; no production config strategy is documented
 - VS Code launch configs now exist for local emulator running and deploy-oriented production workflows in both the serverless repo and the shared workspace root
 - Local emulator startup is standardized on `nvm use 20` plus Firebase import/export persistence via `emulator-data`
+- Firestore and Storage rules coverage runs through `npm run test:rules`
 - The full local emulator stack requires Java 21+ because the current `firebase-tools` version will not run the Firestore emulator on older Java releases
 
 ### Active vs Inactive Backend Surface
@@ -420,26 +423,17 @@ Remaining risk:
 
 Critical paths now cross-check caller identity against booking or asset state, but the codebase still accepts multiple client-provided identifiers and therefore remains sensitive to any future missed validation path.
 
-### 3. HTTP Task Endpoint Is Not Authenticated
-
-`declineOverlappingBookings` only checks request method in [`functions/calls/declineOverlappingBookings.js`](/Users/chiekkoredalino/Projects/Flutter Projects/lend-serverless/functions/calls/declineOverlappingBookings.js:16).
+### 3. HTTP Task Endpoint Depends on OIDC Configuration
 
 It now verifies OIDC bearer tokens in production and allows emulator traffic locally, but it still depends on correct service-account and audience configuration to remain locked down.
 
-### 4. Storage Rules Need Validation, Not Reinvention
-
-Storage rules are now source-controlled and path-scoped for listing uploads and chat media.
-
-Remaining risk:
-- they still need emulator-backed validation against the real upload paths before they should be treated as hardened production policy
-
-### 5. Internal Error Leakage
+### 4. Internal Error Leakage
 
 `confirmBooking` catches and rethrows `error.message` as an `internal` HttpsError in [`functions/calls/confirmBooking.js`](/Users/chiekkoredalino/Projects/Flutter Projects/lend-serverless/functions/calls/confirmBooking.js:136).
 
 This leaks raw internal failure text to clients and makes the public error contract unstable.
 
-### 6. No Abuse Controls
+### 5. No Abuse Controls
 
 There is no evidence of:
 
@@ -517,15 +511,7 @@ If one is missing, the whole batch for that booking fails. The task continues, b
 
 ### What Will Break Under Load
 
-#### 1. Overlap Query Depends on Correct Compound Indexing
-
-`declineOverlappingBookings` performs a multi-field range/equality query on `startDate`, `endDate`, and `status`. That likely needs a composite index, but no `firestore.indexes.json` exists in repo.
-
-Risk:
-
-- production failures or console-generated ad hoc indexes outside source control
-
-#### 2. User Metadata Sync Design Is Full-Scan Heavy
+#### 1. User Metadata Sync Design Is Full-Scan Heavy
 
 If the commented scheduler is ever enabled as written, it will:
 
@@ -536,11 +522,11 @@ If the commented scheduler is ever enabled as written, it will:
 
 That is not startup-scale fatal at tiny size, but it will become costly and slow quickly.
 
-#### 3. Cold Start and Package Simplicity
+#### 2. Cold Start and Package Simplicity
 
 The current codebase is small and unlikely to suffer severe cold start issues from code size alone. The bigger issue is not latency from code bulk; it is correctness and auth.
 
-#### 4. No Clear Gen2 Strategy
+#### 3. No Clear Gen2 Strategy
 
 The code uses `firebase-functions` `6.6.0`, but the implementation style remains older `functions.https.onCall` / `onRequest`. There is no evidence of concurrency tuning, region tuning, memory tuning, or Gen2-specific operational hardening.
 
@@ -563,18 +549,11 @@ The product brief uses lowercase lifecycle names like `pending`, `confirmed`, `c
 
 If the app expects lowercase enum values, this backend will drift.
 
-#### 2. Security Rules Now Exist but Need Coverage
-
-Firestore and Storage rules are now source-controlled in this repo.
-
-Remaining concern:
-- they need emulator-backed validation against real mobile flows before they should be treated as hardened production policy
-
-#### 4. Scheduled Sync Expectations
+#### 2. Scheduled Sync Expectations
 
 The code comments describe a daily metadata sync design, but it is not deployed. If the app assumes automatic denormalized profile repair, that assumption is false today.
 
-#### 5. Callable Surface Is Smaller Than Product Surface
+#### 3. Callable Surface Is Smaller Than Product Surface
 
 The backend exports only:
 
@@ -612,15 +591,12 @@ If the mobile app expects backend-authoritative cancellation, payment confirmati
 
 ### Priority 3: Lock Down Security Posture
 
-12. Expand the new Firestore and Storage rules with emulator-backed scenario coverage.
-13. Document how security rules, callable auth, and mobile flows are expected to evolve together.
-14. Document production secret/config management instead of relying on implicit `.env` habits.
-15. Add App Check or other abuse controls for callable access.
+12. Document production secret/config management instead of relying on implicit `.env` habits.
+13. Add App Check or other abuse controls for callable access.
 
 ### Priority 4: Source-Control Backend Operations
 
-16. Add `firestore.indexes.json` for overlap queries and any upcoming booking lifecycle queries.
-17. Rework or remove `syncUserMetadata`; if kept, redesign it around targeted updates rather than full scans.
+14. Rework or remove `syncUserMetadata`; if kept, redesign it around targeted updates rather than full scans.
 
 ## 12. Future Production Blueprint
 

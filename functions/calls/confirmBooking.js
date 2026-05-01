@@ -52,6 +52,7 @@ exports.confirmBooking = async (request) => {
 
       const booking = selectedSnap.data();
       assertBookingOwner(context.auth.uid, booking);
+      const { ownerId } = getBookingActors(booking);
 
       if (booking?.renter?.uid !== renterId) {
         throw new Error("Booking renter does not match request");
@@ -81,6 +82,15 @@ exports.confirmBooking = async (request) => {
         tokens: tokenData.tokens,
         lastUpdated: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),
       });
+
+      if (ownerId) {
+        const ownerAssetMirrorRef = db.collection("users").doc(ownerId).collection("assets").doc(assetId);
+        transaction.set(
+          ownerAssetMirrorRef,
+          { pendingBookingCount: admin.firestore.FieldValue.increment(-1) },
+          { merge: true },
+        );
+      }
 
       // --- SEND CONFIRMATION MESSAGE (Critical UX feature) ---
       // Notify renter that booking was confirmed

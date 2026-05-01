@@ -88,6 +88,7 @@ exports.declineOverlappingBookings = functions.https.onRequest(async (request, r
           assetId,
           bookingId,
           renterId,
+          ownerId: bookingData.asset?.owner?.uid,
           chatId: bookingData.chatId,
         });
         declinedCount++;
@@ -121,7 +122,7 @@ exports.declineOverlappingBookings = functions.https.onRequest(async (request, r
  * Updates booking status to "Declined" in both collections
  * and updates chat status to "Archived"
  */
-async function declineBooking({ assetId, bookingId, renterId, chatId }) {
+async function declineBooking({ assetId, bookingId, renterId, ownerId, chatId }) {
   const db = admin.firestore();
 
   return new Promise(async (resolve, reject) => {
@@ -132,6 +133,7 @@ async function declineBooking({ assetId, bookingId, renterId, chatId }) {
       const assetBookingRef = db.doc(`assets/${assetId}/bookings/${bookingId}`);
       const userBookingRef = db.doc(`users/${renterId}/bookings/${bookingId}`);
       const chatRef = db.doc(`userChats/${renterId}/chats/${chatId}`);
+      const ownerAssetMirrorRef = ownerId ? db.doc(`users/${ownerId}/assets/${assetId}`) : null;
 
       // Decline booking in asset collection
       batch.update(assetBookingRef, {
@@ -150,6 +152,14 @@ async function declineBooking({ assetId, bookingId, renterId, chatId }) {
         status: CHAT_STATUS.archived,
         lastUpdated: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),
       });
+
+      if (ownerAssetMirrorRef) {
+        batch.set(
+          ownerAssetMirrorRef,
+          { pendingBookingCount: admin.firestore.FieldValue.increment(-1) },
+          { merge: true },
+        );
+      }
 
       await batch.commit();
 

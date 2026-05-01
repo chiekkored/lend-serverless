@@ -95,6 +95,7 @@ exports.createBookingRequest = async (request) => {
   const renterUserChatRef = renterUserChatRootRef.collection("chats").doc(chatRef.id);
   const ownerUserChatRootRef = db.collection("userChats").doc(asset.ownerId);
   const ownerUserChatRef = ownerUserChatRootRef.collection("chats").doc(chatRef.id);
+  const ownerAssetMirrorRef = db.collection("users").doc(asset.ownerId).collection("assets").doc(assetId);
 
   const renterSnapshot = toSimpleUser(renter, renterId);
   const assetSnapshot = toSimpleAsset(asset, assetId);
@@ -144,6 +145,11 @@ exports.createBookingRequest = async (request) => {
     transaction.set(ownerUserChatRootRef, { isOnline: true }, { merge: true });
     transaction.set(renterUserChatRef, chatPayload);
     transaction.set(ownerUserChatRef, chatPayload);
+    transaction.set(
+      ownerAssetMirrorRef,
+      { pendingBookingCount: admin.firestore.FieldValue.increment(1) },
+      { merge: true },
+    );
   });
 
   return {
