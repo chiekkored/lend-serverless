@@ -19,7 +19,10 @@ const {
   normalizeBookingRange,
   addDays,
 } = require("../utils/booking.util");
-const { countPendingBookings } = require("../utils/pendingBookingCount.util");
+const {
+  countPendingBookings,
+  pendingBookingCountIncrementValue,
+} = require("../utils/pendingBookingCount.util");
 const {
   createSignedToken,
   validateSignedQrToken,
@@ -117,6 +120,57 @@ test("countPendingBookings only counts pending booking documents", () => {
     ]),
     2,
   );
+});
+
+test("pendingBookingCountIncrementValue uses Firestore increment when available", () => {
+  const sentinel = { type: "increment", delta: 1 };
+  const fieldValue = {
+    increment(delta) {
+      assert.equal(delta, 1);
+      return sentinel;
+    },
+  };
+
+  assert.equal(
+    pendingBookingCountIncrementValue({
+      fieldValue,
+      currentValue: 4,
+      delta: 1,
+    }),
+    sentinel,
+  );
+});
+
+test("pendingBookingCountIncrementValue falls back to current count plus delta", () => {
+  assert.equal(
+    pendingBookingCountIncrementValue({
+      fieldValue: null,
+      currentValue: 4,
+      delta: 1,
+    }),
+    5,
+  );
+  assert.equal(
+    pendingBookingCountIncrementValue({
+      fieldValue: null,
+      currentValue: 4,
+      delta: -1,
+    }),
+    3,
+  );
+});
+
+test("pendingBookingCountIncrementValue treats missing or invalid current values as zero", () => {
+  for (const currentValue of [undefined, null, "4", Number.NaN, Infinity]) {
+    assert.equal(
+      pendingBookingCountIncrementValue({
+        fieldValue: {},
+        currentValue,
+        delta: -1,
+      }),
+      -1,
+    );
+  }
 });
 
 test("validateSignedQrToken accepts a current signed QR payload", () => {

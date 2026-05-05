@@ -1,11 +1,8 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
-const {
-  BOOKING_STATUS,
-  CHAT_STATUS,
-  normalizeBookingRange,
-} = require("../utils/booking.util");
+const { BOOKING_STATUS, CHAT_STATUS, normalizeBookingRange } = require("../utils/booking.util");
 const { verifyCloudTaskRequest } = require("../utils/task.util");
+const { pendingBookingCountIncrementValue } = require("../utils/pendingBookingCount.util");
 
 /**
  * Cloud Function: Decline Overlapping Bookings (Cloud Tasks Handler)
@@ -50,17 +47,15 @@ exports.declineOverlappingBookings = functions.https.onRequest(async (request, r
 
   try {
     const { assetId, selectedBookingId, range } = normalizedPayload;
-    console.log(
-      `[declineOverlappingBookings] Processing asset=${assetId}, skipping=${selectedBookingId}`,
-    );
+    console.log(`[declineOverlappingBookings] Processing asset=${assetId}, skipping=${selectedBookingId}`);
 
     // Find all pending bookings that overlap with confirmed booking's date range
     const overlappingQuery = await db
       .collection("assets")
       .doc(assetId)
       .collection("bookings")
-      .where("startDate", "<", admin.firestore.Timestamp.fromDate(range.endDate))
-      .where("endDate", ">", admin.firestore.Timestamp.fromDate(range.startDate))
+      .where("startDate", "<", admin.firestore.Timestamp?.fromDate(range.endDate) || range.endDate)
+      .where("endDate", ">", admin.firestore.Timestamp?.fromDate(range.startDate) || range.startDate)
       .where("status", "==", BOOKING_STATUS.pending)
       .get();
 
@@ -138,8 +133,19 @@ async function declineBooking({ assetId, bookingId, renterId, ownerId, chatId })
   const userBookingRef = db.doc(`users/${renterId}/bookings/${bookingId}`);
   const chatRef = chatId ? db.doc(`userChats/${renterId}/chats/${chatId}`) : null;
   const ownerAssetMirrorRef = ownerId ? db.doc(`users/${ownerId}/assets/${assetId}`) : null;
-  const refsToRead = [assetBookingRef, userBookingRef, ...(chatRef ? [chatRef] : [])];
-  const [assetBookingSnap, userBookingSnap, chatSnap] = await db.getAll(...refsToRead);
+  const refsToRead = [assetBookingRef, userBookingRef];
+  if (chatRef) {
+    refsToRead.push(chatRef);
+  }
+  if (ownerAssetMirrorRef) {
+    refsToRead.push(ownerAssetMirrorRef);
+  }
+
+  const snapsByPath = new Map((await db.getAll(...refsToRead)).map((snap) => [snap.ref.path, snap]));
+  const assetBookingSnap = snapsByPath.get(assetBookingRef.path);
+  const userBookingSnap = snapsByPath.get(userBookingRef.path);
+  const chatSnap = chatRef ? snapsByPath.get(chatRef.path) : null;
+  const ownerAssetMirrorSnap = ownerAssetMirrorRef ? snapsByPath.get(ownerAssetMirrorRef.path) : null;
   const now = admin.firestore?.FieldValue?.serverTimestamp() || new Date();
   const missing = [];
 
@@ -175,7 +181,13 @@ async function declineBooking({ assetId, bookingId, renterId, ownerId, chatId })
   if (ownerAssetMirrorRef) {
     batch.set(
       ownerAssetMirrorRef,
-      { pendingBookingCount: admin.firestore.FieldValue.increment(-1) },
+      {
+        pendingBookingCount: pendingBookingCountIncrementValue({
+          fieldValue: admin.firestore.FieldValue,
+          currentValue: ownerAssetMirrorSnap.data()?.pendingBookingCount,
+          delta: -1,
+        }),
+      },
       { merge: true },
     );
   }
@@ -207,14 +219,10 @@ function normalizeOverlapPayload(payload = {}) {
 function summarizeDeclineResults(results) {
   return {
     declinedCount: results.filter(
-      (result) =>
-        result.status === "declined" ||
-        result.status === "declined_with_missing_mirrors",
+      (result) => result.status === "declined" || result.status === "declined_with_missing_mirrors",
     ).length,
     skippedCount: results.filter((result) => result.status === "skipped_selected").length,
-    missingMirrorCount: results.filter(
-      (result) => result.status === "declined_with_missing_mirrors",
-    ).length,
+    missingMirrorCount: results.filter((result) => result.status === "declined_with_missing_mirrors").length,
     errorCount: results.filter((result) => result.status === "failed").length,
   };
 }

@@ -13,11 +13,7 @@ const BOOKING_STATUS = {
   cancelled: "Cancelled",
 };
 
-const ACTIVE_BOOKING_STATUSES = [
-  BOOKING_STATUS.confirmed,
-  BOOKING_STATUS.handedOver,
-  BOOKING_STATUS.returned,
-];
+const ACTIVE_BOOKING_STATUSES = [BOOKING_STATUS.confirmed, BOOKING_STATUS.handedOver, BOOKING_STATUS.returned];
 
 const CHAT_STATUS = {
   active: "Active",
@@ -146,10 +142,7 @@ function assertPendingBooking(booking) {
 }
 
 function assertNotReturned(booking) {
-  if (
-    booking?.status === BOOKING_STATUS.returned ||
-    booking?.status === BOOKING_STATUS.completed
-  ) {
+  if (booking?.status === BOOKING_STATUS.returned || booking?.status === BOOKING_STATUS.completed) {
     throwAndLogHttpsError("failed-precondition", "Booking already returned");
   }
 }
@@ -161,10 +154,7 @@ function assertReviewableBooking(booking) {
 }
 
 function assertTokenGenerationAllowed(booking) {
-  const allowedStatuses = [
-    BOOKING_STATUS.confirmed,
-    BOOKING_STATUS.handedOver,
-  ];
+  const allowedStatuses = [BOOKING_STATUS.confirmed, BOOKING_STATUS.handedOver];
 
   if (!allowedStatuses.includes(booking?.status)) {
     throwAndLogHttpsError("failed-precondition", "Booking is not eligible for QR token generation");
@@ -208,26 +198,17 @@ function buildTokenBundle({ bookingId, renterId, assetId, endDate }) {
   };
 }
 
-function buildTokenUpdateData({
-  bookingId,
-  renterId,
-  assetId,
-  endDate,
-  existingTokens,
-  markRegenerated = false,
-}) {
+function buildTokenUpdateData({ bookingId, renterId, assetId, endDate, existingTokens, markRegenerated = false }) {
   const bundle = buildTokenBundle({ bookingId, renterId, assetId, endDate });
 
   return {
     tokens: {
       handoverToken: bundle.handoverToken,
       returnToken: bundle.returnToken,
-      handoverExpiry: admin.firestore.Timestamp.fromDate(bundle.handoverExpiry),
-      returnExpiry: admin.firestore.Timestamp.fromDate(bundle.returnExpiry),
-      createdAt: existingTokens?.createdAt || admin.firestore.FieldValue.serverTimestamp(),
-      ...(markRegenerated
-        ? { regeneratedAt: admin.firestore.FieldValue.serverTimestamp() }
-        : {}),
+      handoverExpiry: admin.firestore.Timestamp?.fromDate(bundle.handoverExpiry) || bundle.handoverExpiry,
+      returnExpiry: admin.firestore.Timestamp?.fromDate(bundle.returnExpiry) || bundle.handoverExpiry,
+      createdAt: existingTokens?.createdAt || admin.firestore.FieldValue?.serverTimestamp() || new Date(),
+      ...(markRegenerated ? { regeneratedAt: admin.firestore.FieldValue?.serverTimestamp() || new Date() } : {}),
     },
     rawTokens: {
       handover: bundle.handoverToken,
@@ -260,15 +241,8 @@ function getTargetStatusForAction(action) {
 
 function isTokenActionCompleted(booking, action) {
   const completedStatuses = {
-    handover: [
-      BOOKING_STATUS.handedOver,
-      BOOKING_STATUS.returned,
-      BOOKING_STATUS.completed,
-    ],
-    return: [
-      BOOKING_STATUS.returned,
-      BOOKING_STATUS.completed,
-    ],
+    handover: [BOOKING_STATUS.handedOver, BOOKING_STATUS.returned, BOOKING_STATUS.completed],
+    return: [BOOKING_STATUS.returned, BOOKING_STATUS.completed],
   };
 
   if (!completedStatuses[action]) {

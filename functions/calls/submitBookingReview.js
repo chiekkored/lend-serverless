@@ -9,23 +9,14 @@ const {
 
 exports.submitBookingReview = async (request) => {
   const auth = request.auth;
-  const {
-    bookingId,
-    assetId,
-    chatId,
-    rating,
-    review,
-  } = request.data || {};
+  const { bookingId, assetId, chatId, rating, review } = request.data || {};
 
   if (!auth) {
     throwAndLogHttpsError("permission-denied", "User must be authenticated");
   }
 
   if (!bookingId || !assetId || !chatId || rating == null || review == null) {
-    throwAndLogHttpsError(
-      "invalid-argument",
-      "Missing bookingId, assetId, chatId, rating, or review",
-    );
+    throwAndLogHttpsError("invalid-argument", "Missing bookingId, assetId, chatId, rating, or review");
   }
 
   if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
@@ -70,10 +61,7 @@ exports.submitBookingReview = async (request) => {
     }
 
     if (booking?.asset?.id !== assetId || booking?.chatId !== chatId) {
-      throwAndLogHttpsError(
-        "failed-precondition",
-        "Booking context does not match the selected chat or asset",
-      );
+      throwAndLogHttpsError("failed-precondition", "Booking context does not match the selected chat or asset");
     }
 
     assertReviewableBooking(userBooking);
@@ -86,8 +74,8 @@ exports.submitBookingReview = async (request) => {
     const currentAverage = Number(assetData.averageRating || 0);
     const currentCount = Number(assetData.reviewCount || 0);
     const newCount = currentCount + 1;
-    const newAverage = ((currentAverage * currentCount) + rating) / newCount;
-    const now = admin.firestore.FieldValue.serverTimestamp();
+    const newAverage = (currentAverage * currentCount + rating) / newCount;
+    const now = admin.firestore.FieldValue?.serverTimestamp() || new Date();
 
     transaction.set(assetRatingRef, {
       rating,
@@ -121,9 +109,13 @@ exports.submitBookingReview = async (request) => {
     transaction.set(userBookingRef.collection("events").doc("review-submitted"), event, { merge: true });
     transaction.set(assetBookingRef.collection("events").doc("review-submitted"), event, { merge: true });
 
-    transaction.set(renterUserChatRef, {
-      status: CHAT_STATUS.archived,
-    }, { merge: true });
+    transaction.set(
+      renterUserChatRef,
+      {
+        status: CHAT_STATUS.archived,
+      },
+      { merge: true },
+    );
   });
 
   const ratingMessagesSnap = await db

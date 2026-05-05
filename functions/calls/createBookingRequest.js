@@ -6,6 +6,7 @@ const {
   CHAT_STATUS,
   normalizeBookingRange,
 } = require("../utils/booking.util");
+const { pendingBookingCountIncrementValue } = require("../utils/pendingBookingCount.util");
 
 exports.createBookingRequest = async (request) => {
   const auth = request.auth;
@@ -62,8 +63,8 @@ exports.createBookingRequest = async (request) => {
     .collection("assets")
     .doc(assetId)
     .collection("bookings")
-    .where("startDate", "<", admin.firestore.Timestamp.fromDate(bookingRange.endDate))
-    .where("endDate", ">", admin.firestore.Timestamp.fromDate(bookingRange.startDate))
+    .where("startDate", "<", admin.firestore.Timestamp?.fromDate(bookingRange.endDate) || bookingRange.endDate)
+    .where("endDate", ">", admin.firestore.Timestamp?.fromDate(bookingRange.startDate) || bookingRange.startDate)
     .where("status", "in", ACTIVE_BOOKING_STATUSES)
     .limit(1)
     .get();
@@ -90,9 +91,9 @@ exports.createBookingRequest = async (request) => {
     id: bookingRef.id,
     chatId: chatRef.id,
     asset: assetSnapshot,
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    startDate: admin.firestore.Timestamp.fromDate(bookingRange.startDate),
-    endDate: admin.firestore.Timestamp.fromDate(bookingRange.endDate),
+    createdAt: admin.firestore.FieldValue?.serverTimestamp() || new Date(),
+    startDate: admin.firestore.Timestamp?.fromDate(bookingRange.startDate) || bookingRange.startDate,
+    endDate: admin.firestore.Timestamp?.fromDate(bookingRange.endDate) || bookingRange.endDate,
     numDays: bookingRange.numDays,
     payment: null,
     renter: renterSnapshot,
@@ -108,22 +109,24 @@ exports.createBookingRequest = async (request) => {
     asset: assetSnapshot,
     participants: [asset.owner, renterSnapshot],
     lastMessage: bookingText,
-    lastMessageDate: admin.firestore.FieldValue.serverTimestamp(),
-    lastMessageSenderId: renterId,
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    lastMessageDate: admin.firestore.FieldValue?.serverTimestamp() || new Date(),
+    lastMessageSenderId: asset.ownerId,
+    createdAt: admin.firestore.FieldValue?.serverTimestamp() || new Date(),
     hasRead: false,
     status: CHAT_STATUS.active,
   };
 
   await db.runTransaction(async (transaction) => {
+    const ownerAssetMirrorSnap = await transaction.get(ownerAssetMirrorRef);
+
     transaction.set(bookingRef, bookingPayload);
     transaction.set(assetBookingRef, bookingPayload);
     transaction.set(chatRef, { chatType: "Private" });
     transaction.set(messageRef, {
       id: messageRef.id,
       text: bookingText,
-      senderId: renterId,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      senderId: asset.ownerId,
+      createdAt: admin.firestore.FieldValue?.serverTimestamp() || new Date(),
       type: "Text",
     });
     transaction.set(renterUserChatRootRef, { isOnline: true }, { merge: true });
@@ -132,7 +135,13 @@ exports.createBookingRequest = async (request) => {
     transaction.set(ownerUserChatRef, chatPayload);
     transaction.set(
       ownerAssetMirrorRef,
-      { pendingBookingCount: admin.firestore.FieldValue.increment(1) },
+      {
+        pendingBookingCount: pendingBookingCountIncrementValue({
+          fieldValue: admin.firestore.FieldValue,
+          currentValue: ownerAssetMirrorSnap.data()?.pendingBookingCount,
+          delta: 1,
+        }),
+      },
       { merge: true },
     );
   });

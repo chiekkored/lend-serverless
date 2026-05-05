@@ -11,6 +11,7 @@ const {
   getLifecycleMessageId,
 } = require("../utils/booking.util");
 const { getTaskServiceAccountEmail } = require("../utils/task.util");
+const { pendingBookingCountIncrementValue } = require("../utils/pendingBookingCount.util");
 
 /**
  * Cloud Function: Two-Phase Booking Confirmation
@@ -58,6 +59,8 @@ exports.confirmBooking = async (request) => {
       assertCanonicalBookingRange(booking);
       assertPendingBooking(booking);
       const { ownerId } = getBookingActors(booking);
+      const ownerAssetMirrorRef = ownerId ? db.collection("users").doc(ownerId).collection("assets").doc(assetId) : null;
+      const ownerAssetMirrorSnap = ownerAssetMirrorRef ? await transaction.get(ownerAssetMirrorRef) : null;
 
       if (booking?.renter?.uid !== renterId) {
         throw new Error("Booking renter does not match request");
@@ -96,10 +99,15 @@ exports.confirmBooking = async (request) => {
       transaction.set(userBookingRef.collection("events").doc("confirmed"), event, { merge: true });
 
       if (ownerId) {
-        const ownerAssetMirrorRef = db.collection("users").doc(ownerId).collection("assets").doc(assetId);
         transaction.set(
           ownerAssetMirrorRef,
-          { pendingBookingCount: admin.firestore.FieldValue.increment(-1) },
+          {
+            pendingBookingCount: pendingBookingCountIncrementValue({
+              fieldValue: admin.firestore.FieldValue,
+              currentValue: ownerAssetMirrorSnap.data()?.pendingBookingCount,
+              delta: -1,
+            }),
+          },
           { merge: true },
         );
       }

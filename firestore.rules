@@ -72,7 +72,7 @@ service cloud.firestore {
         resource.data.ownerId == request.auth.uid;
 
       match /bookings/{bookingId} {
-        allow read: if bookingParticipants(resource.data);
+        allow read: if isSignedIn();
         allow create: if false;
         allow update, delete: if false;
       }
