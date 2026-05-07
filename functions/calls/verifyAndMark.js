@@ -72,9 +72,7 @@ exports.verifyAndMark = async (request) => {
       throwAndLogHttpsError("permission-denied", "Invalid token payload");
     }
 
-    alreadyCompleted =
-      isTokenActionCompleted(userBooking, action) ||
-      isTokenActionCompleted(assetBooking, action);
+    alreadyCompleted = isTokenActionCompleted(userBooking, action) || isTokenActionCompleted(assetBooking, action);
 
     const now = admin.firestore.FieldValue?.serverTimestamp() || new Date();
     const fromStatus = userBooking.status;
@@ -120,7 +118,6 @@ exports.verifyAndMark = async (request) => {
       messageText: systemMessageText,
       messageType: "system", // MessageType.system for general updates
       messageId: getLifecycleMessageId(action, bookingId),
-      includeLastMessage: false,
     });
   }
 
