@@ -5,6 +5,7 @@
     "test": "node --test test/booking.util.test.js",
     "test:rules": "cd .. && firebase emulators:exec --only firestore,storage \"cd functions && node --test test/rules.test.js\"",
     "backfill:pending-booking-counts": "node scripts/backfillPendingBookingCounts.js",
+    "backfill:chat-booking-dates": "node scripts/backfillChatBookingDates.js",
     "serve": "firebase emulators:start --only functions",
     "shell": "firebase functions:shell",
     "start": "npm run shell",

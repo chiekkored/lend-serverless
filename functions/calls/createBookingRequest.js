@@ -106,6 +106,8 @@ exports.createBookingRequest = async (request) => {
     chatId: chatRef.id,
     bookingId: bookingRef.id,
     renterId,
+    bookingStartDate: bookingPayload.startDate,
+    bookingEndDate: bookingPayload.endDate,
     asset: assetSnapshot,
     participants: [asset.owner, renterSnapshot],
     lastMessage: bookingText,
