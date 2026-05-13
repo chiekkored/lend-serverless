@@ -134,6 +134,7 @@ exports.confirmBooking = async (request) => {
         const renterUserChatRef = db.collection("userChats").doc(renterId).collection("chats").doc(chatId);
 
         transaction.update(renterUserChatRef, {
+          bookingStatus: BOOKING_STATUS.confirmed,
           hasRead: false,
           lastMessage: messageText,
           lastMessageDate: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),
@@ -147,6 +148,7 @@ exports.confirmBooking = async (request) => {
           .doc(chatId);
 
         transaction.update(ownerUserChatRef, {
+          bookingStatus: BOOKING_STATUS.confirmed,
           hasRead: false,
           lastMessage: messageText,
           lastMessageDate: admin.firestore?.FieldValue?.serverTimestamp() || new Date(),

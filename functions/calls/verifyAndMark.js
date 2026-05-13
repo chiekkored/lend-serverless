@@ -6,6 +6,7 @@ const {
   assertCanonicalBookingRange,
   assertQrScannerAuthorized,
   assertTokenActionAvailableOrCompleted,
+  BOOKING_STATUS,
   CHAT_STATUS,
   getExpectedTokenForAction,
   getLifecycleMessageId,
@@ -31,6 +32,7 @@ exports.verifyAndMark = async (request) => {
   let chatID = null;
   let ownerID = null;
   let alreadyCompleted = false;
+  let targetStatus = null;
 
   // --- Run transaction ---
   await admin.firestore().runTransaction(async (tx) => {
@@ -77,6 +79,7 @@ exports.verifyAndMark = async (request) => {
     const now = admin.firestore.FieldValue?.serverTimestamp() || new Date();
     const fromStatus = userBooking.status;
     const toStatus = getTargetStatusForAction(action);
+    targetStatus = toStatus;
 
     if (!alreadyCompleted) {
       const updateData = {
@@ -119,6 +122,14 @@ exports.verifyAndMark = async (request) => {
       messageType: "system", // MessageType.system for general updates
       messageId: getLifecycleMessageId(action, bookingId),
     });
+
+    const ownerUserChatRef = admin.firestore().collection("userChats").doc(ownerID).collection("chats").doc(chatID);
+    const renterUserChatRef = admin.firestore().collection("userChats").doc(userId).collection("chats").doc(chatID);
+
+    await admin.firestore().runTransaction(async (tx) => {
+      tx.update(ownerUserChatRef, { bookingStatus: targetStatus });
+      tx.update(renterUserChatRef, { bookingStatus: targetStatus });
+    });
   }
 
   // After 'return' action, send rating message to renter and archive owner's chat
@@ -137,7 +148,10 @@ exports.verifyAndMark = async (request) => {
     const ownerUserChatRef = admin.firestore().collection("userChats").doc(ownerID).collection("chats").doc(chatID);
 
     await admin.firestore().runTransaction(async (tx) => {
-      tx.update(ownerUserChatRef, { status: CHAT_STATUS.archived });
+      tx.update(ownerUserChatRef, {
+        bookingStatus: BOOKING_STATUS.returned,
+        status: CHAT_STATUS.archived,
+      });
     });
   }
 

@@ -113,6 +113,7 @@ exports.submitBookingReview = async (request) => {
       renterUserChatRef,
       {
         status: CHAT_STATUS.archived,
+        bookingStatus: BOOKING_STATUS.completed,
       },
       { merge: true },
     );

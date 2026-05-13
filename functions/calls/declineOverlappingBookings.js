@@ -169,6 +169,7 @@ async function declineBooking({ assetId, bookingId, renterId, ownerId, chatId })
 
   if (chatRef && chatSnap?.exists) {
     batch.update(chatRef, {
+      bookingStatus: BOOKING_STATUS.declined,
       status: CHAT_STATUS.archived,
       lastUpdated: now,
     });

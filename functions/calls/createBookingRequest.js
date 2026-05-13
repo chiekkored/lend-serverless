@@ -108,6 +108,7 @@ exports.createBookingRequest = async (request) => {
     renterId,
     bookingStartDate: bookingPayload.startDate,
     bookingEndDate: bookingPayload.endDate,
+    bookingStatus: bookingPayload.status,
     asset: assetSnapshot,
     participants: [asset.owner, renterSnapshot],
     lastMessage: bookingText,
