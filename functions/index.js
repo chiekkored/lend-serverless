@@ -8,6 +8,7 @@ const { confirmBooking } = require("./calls/confirmBooking.js");
 const { createBookingRequest } = require("./calls/createBookingRequest.js");
 const { declineOverlappingBookings } = require("./calls/declineOverlappingBookings.js");
 const { submitBookingReview } = require("./calls/submitBookingReview.js");
+const { cancelBooking } = require("./calls/cancelBooking.js");
 const { syncUserMetadata } = require("./scheduled/syncUserMetadata.js");
 
 // Initialize Firebase Admin SDK only once
@@ -23,6 +24,7 @@ exports.verifyToken = functions.https.onCall(verifyToken);
 exports.confirmBooking = functions.https.onCall(confirmBooking);
 exports.createBookingRequest = functions.https.onCall(createBookingRequest);
 exports.submitBookingReview = functions.https.onCall(submitBookingReview);
+exports.cancelBooking = functions.https.onCall(cancelBooking);
 
 // Export HTTP-triggered function (for Cloud Tasks)
 exports.declineOverlappingBookings = declineOverlappingBookings;
