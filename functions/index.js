@@ -25,6 +25,10 @@ exports.confirmBooking = functions.https.onCall(confirmBooking);
 exports.createBookingRequest = functions.https.onCall(createBookingRequest);
 exports.submitBookingReview = functions.https.onCall(submitBookingReview);
 exports.cancelBooking = functions.https.onCall(cancelBooking);
+if (process.env.FUNCTIONS_EMULATOR === "true") {
+  const { bootstrapAdminUser } = require("./calls/bootstrapAdminUser.js");
+  exports.bootstrapAdminUser = bootstrapAdminUser;
+}
 
 // Export HTTP-triggered function (for Cloud Tasks)
 exports.declineOverlappingBookings = declineOverlappingBookings;
