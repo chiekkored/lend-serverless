@@ -1,13 +1,13 @@
 const admin = require("firebase-admin");
 const { onRequest } = require("firebase-functions/v2/https");
+const {
+  jsonResponse,
+  splitDisplayName,
+} = require("../utils/adminUser.util");
 
 if (process.env.FUNCTIONS_EMULATOR === "true") {
   require("dotenv").config({ path: ".secret.local" });
 }
-
-const jsonResponse = (res, status, body) => {
-  res.status(status).json(body);
-};
 
 const setCorsHeaders = (res) => {
   res.set("Access-Control-Allow-Origin", "*");
@@ -34,7 +34,7 @@ exports.bootstrapAdminUser = onRequest({ cors: true }, async (req, res) => {
     return;
   }
 
-  const { email, password, displayName, setupSecret } = req.body ?? {};
+  const { email, password, displayName, setupSecret, adminType } = req.body ?? {};
 
   if (setupSecret !== expectedSecret) {
     jsonResponse(res, 403, { error: "Invalid setup secret." });
@@ -52,6 +52,15 @@ exports.bootstrapAdminUser = onRequest({ cors: true }, async (req, res) => {
   }
 
   const normalizedEmail = email.trim().toLowerCase();
+  const normalizedAdminType =
+    typeof adminType === "string" && adminType.trim()
+      ? adminType.trim().toLowerCase()
+      : "superadmin";
+
+  if (!["superadmin", "admin", "moderator", "finance"].includes(normalizedAdminType)) {
+    jsonResponse(res, 400, { error: "Invalid admin type." });
+    return;
+  }
 
   try {
     let user;
@@ -62,28 +71,63 @@ exports.bootstrapAdminUser = onRequest({ cors: true }, async (req, res) => {
         throw error;
       }
 
-      user = await admin.auth().createUser({
+      const createPayload = {
         email: normalizedEmail,
         password,
-        displayName:
-          typeof displayName === "string" && displayName.trim()
-            ? displayName.trim()
-            : undefined,
         emailVerified: true,
-      });
+      };
+      if (typeof displayName === "string" && displayName.trim()) {
+        createPayload.displayName = displayName.trim();
+      }
+
+      user = await admin.auth().createUser(createPayload);
     }
 
     const existingClaims = user.customClaims ?? {};
     await admin.auth().setCustomUserClaims(user.uid, {
       ...existingClaims,
       admin: true,
+      adminType: normalizedAdminType,
     });
+
+    const adminUserRef = admin.firestore().collection("adminUsers").doc(user.uid);
+    const adminUserSnap = await adminUserRef.get();
+    const { firstName, lastName } = splitDisplayName(
+      typeof displayName === "string" ? displayName.trim() : "",
+    );
+
+    await adminUserRef.set(
+      {
+        uid: user.uid,
+        email: normalizedEmail,
+        firstName,
+        lastName,
+        displayName:
+          typeof displayName === "string" && displayName.trim()
+            ? displayName.trim()
+            : user.displayName ?? null,
+        photoUrl: user.photoURL ?? null,
+        createdAt:
+          adminUserSnap.exists && adminUserSnap.data()?.createdAt
+            ? adminUserSnap.data().createdAt
+            : admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        adminType: normalizedAdminType,
+        status: "Active",
+        createdBy: adminUserSnap.data()?.createdBy ?? "bootstrap",
+        updatedBy: "bootstrap",
+        deletedAt: null,
+        deletedBy: null,
+      },
+      { merge: true },
+    );
 
     jsonResponse(res, 200, {
       ok: true,
       uid: user.uid,
       email: normalizedEmail,
       admin: true,
+      adminType: normalizedAdminType,
     });
   } catch (error) {
     console.error("Failed to bootstrap admin user", error);

@@ -10,6 +10,10 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.admin == true;
+    }
+
     function bookingParticipants(data) {
       return isSignedIn() &&
         (request.auth.uid == data.renter.uid ||
@@ -62,6 +66,11 @@ service cloud.firestore {
           allow write: if false;
         }
       }
+    }
+
+    match /adminUsers/{uid} {
+      allow read: if isAdmin();
+      allow write: if false;
     }
 
     match /assets/{assetId} {
