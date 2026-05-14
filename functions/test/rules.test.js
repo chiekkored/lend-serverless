@@ -83,6 +83,31 @@ test("asset writes are owner-scoped and booking/rating writes remain backend-onl
   await assertFails(setDoc(doc(ownerDb, "assets/asset-1/ratings/rating-new"), { rating: 5 }));
 });
 
+test("admins can update canonical assets and owner asset mirrors", async () => {
+  const adminDb = testEnv.authenticatedContext("admin", {
+    admin: true,
+    adminType: "admin",
+  }).firestore();
+  const otherDb = testEnv.authenticatedContext("other").firestore();
+
+  await assertSucceeds(updateDoc(doc(adminDb, "assets/asset-1"), { status: "Rejected" }));
+  await assertSucceeds(updateDoc(doc(adminDb, "users/owner/assets/asset-1"), { status: "Rejected" }));
+  await assertFails(updateDoc(doc(otherDb, "users/owner/assets/asset-1"), { status: "Rejected" }));
+});
+
+test("admins can create asset audits and non-admins cannot", async () => {
+  const adminDb = testEnv.authenticatedContext("admin", {
+    admin: true,
+    adminType: "admin",
+  }).firestore();
+  const ownerDb = testEnv.authenticatedContext("owner").firestore();
+
+  await assertSucceeds(setDoc(doc(adminDb, "assets/asset-1/audits/audit-1"), auditData("Rejected")));
+  await assertSucceeds(getDoc(doc(adminDb, "assets/asset-1/audits/audit-1")));
+  await assertFails(setDoc(doc(ownerDb, "assets/asset-1/audits/audit-2"), auditData("Deleted")));
+  await assertFails(updateDoc(doc(adminDb, "assets/asset-1/audits/audit-1"), { notes: "Changed" }));
+});
+
 test("booking reads are limited to renter and owner participants", async () => {
   const ownerDb = testEnv.authenticatedContext("owner").firestore();
   const renterDb = testEnv.authenticatedContext("renter").firestore();
@@ -159,6 +184,7 @@ async function seedFirestore() {
     await setDoc(doc(db, "users/renter"), { uid: "renter", firstName: "Renter" });
     await setDoc(doc(db, "users/other"), { uid: "other", firstName: "Other" });
     await setDoc(doc(db, "assets/asset-1"), assetData("owner"));
+    await setDoc(doc(db, "users/owner/assets/asset-1"), simpleAssetData("owner"));
     await setDoc(doc(db, "assets/asset-1/bookings/booking-1"), bookingData());
     await setDoc(doc(db, "users/renter/bookings/booking-1"), bookingData());
     await setDoc(doc(db, "chats/chat-1"), { chatType: "Private" });
@@ -178,6 +204,31 @@ function assetData(ownerId) {
     title: "Camera",
     isDeleted: false,
     status: "Available",
+  };
+}
+
+function simpleAssetData(ownerId) {
+  return {
+    id: "asset-1",
+    owner: {
+      uid: ownerId,
+      firstName: "Owner",
+    },
+    title: "Camera",
+    isDeleted: false,
+    status: "Available",
+  };
+}
+
+function auditData(type) {
+  return {
+    type,
+    notes: "Incomplete listing details",
+    createdBy: {
+      uid: "admin",
+      name: "Admin User",
+    },
+    createdAt: new Date("2026-04-02T00:00:00.000Z"),
   };
 }
 
