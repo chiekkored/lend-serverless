@@ -22,6 +22,53 @@ service cloud.firestore {
         request.resource.data.createdBy.name is string;
     }
 
+    function isValidReportCreate(reportId) {
+      return isSignedIn() &&
+        request.resource.data.keys().hasOnly([
+          'id',
+          'reporterId',
+          'reportedUserId',
+          'reportType',
+          'reason',
+          'details',
+          'chatId',
+          'bookingId',
+          'assetId',
+          'archiveRequested',
+          'bookingCancelRequested',
+          'createdAt',
+          'status'
+        ]) &&
+        request.resource.data.id == reportId &&
+        request.resource.data.reporterId == request.auth.uid &&
+        request.resource.data.reportType is string &&
+        request.resource.data.reason is string &&
+        request.resource.data.createdAt is timestamp &&
+        request.resource.data.status == 'Open' &&
+        (!('reportedUserId' in request.resource.data) ||
+          request.resource.data.reportedUserId is string) &&
+        (!('details' in request.resource.data) ||
+          request.resource.data.details is string) &&
+        (!('chatId' in request.resource.data) ||
+          request.resource.data.chatId is string) &&
+        (!('bookingId' in request.resource.data) ||
+          request.resource.data.bookingId is string) &&
+        (!('assetId' in request.resource.data) ||
+          request.resource.data.assetId is string) &&
+        (!('archiveRequested' in request.resource.data) ||
+          request.resource.data.archiveRequested is bool) &&
+        (!('bookingCancelRequested' in request.resource.data) ||
+          request.resource.data.bookingCancelRequested is bool);
+    }
+
+    function isValidReportAdminUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['status', 'lastUpdated']) &&
+        request.resource.data.status in ['Pending', 'Done'] &&
+        (!('lastUpdated' in request.resource.data) ||
+          request.resource.data.lastUpdated is timestamp);
+    }
+
     function bookingParticipants(data) {
       return isSignedIn() &&
         (request.auth.uid == data.renter.uid ||
@@ -79,6 +126,13 @@ service cloud.firestore {
     match /adminUsers/{uid} {
       allow read: if isAdmin();
       allow write: if false;
+    }
+
+    match /reports/{reportId} {
+      allow read: if isAdmin();
+      allow create: if isValidReportCreate(reportId);
+      allow update: if isAdmin() && isValidReportAdminUpdate();
+      allow delete: if false;
     }
 
     match /assets/{assetId} {
