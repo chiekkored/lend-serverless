@@ -109,12 +109,12 @@ service cloud.firestore {
     }
 
     match /chats/{chatId} {
-      allow read: if isChatParticipant(chatId);
+      allow read: if isAdmin() || isChatParticipant(chatId);
       allow create: if false;
       allow update, delete: if false;
 
       match /messages/{messageId} {
-        allow read: if isChatParticipant(chatId);
+        allow read: if isAdmin() || isChatParticipant(chatId);
         allow create: if isSignedIn() && isChatParticipant(chatId);
         allow update, delete: if false;
       }

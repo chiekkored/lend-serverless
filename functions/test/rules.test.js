@@ -154,8 +154,14 @@ test("chat messages are limited to chat participants", async () => {
   const renterDb = testEnv.authenticatedContext("renter").firestore();
   const ownerDb = testEnv.authenticatedContext("owner").firestore();
   const otherDb = testEnv.authenticatedContext("other").firestore();
+  const adminDb = testEnv.authenticatedContext("admin", {
+    admin: true,
+    adminType: "admin",
+  }).firestore();
 
   await assertSucceeds(getDoc(doc(ownerDb, "chats/chat-1")));
+  await assertSucceeds(getDoc(doc(adminDb, "chats/chat-1")));
+  await assertSucceeds(getDocs(collection(adminDb, "chats/chat-1/messages")));
   await assertSucceeds(setDoc(doc(renterDb, "chats/chat-1/messages/message-new"), {
     id: "message-new",
     text: "Hello",
@@ -201,6 +207,11 @@ async function seedFirestore() {
     await setDoc(doc(db, "assets/asset-1/bookings/booking-1"), bookingData());
     await setDoc(doc(db, "users/renter/bookings/booking-1"), bookingData());
     await setDoc(doc(db, "chats/chat-1"), { chatType: "Private" });
+    await setDoc(doc(db, "chats/chat-1/messages/message-1"), {
+      id: "message-1",
+      text: "Booking Received!",
+      senderId: "owner",
+    });
     await setDoc(doc(db, "userChats/owner/chats/chat-1"), { id: "chat-1", bookingId: "booking-1" });
     await setDoc(doc(db, "userChats/renter/chats/chat-1"), { id: "chat-1", bookingId: "booking-1" });
   });
