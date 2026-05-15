@@ -108,6 +108,19 @@ test("admins can create asset audits and non-admins cannot", async () => {
   await assertFails(updateDoc(doc(adminDb, "assets/asset-1/audits/audit-1"), { notes: "Changed" }));
 });
 
+test("admins can update booking mirrors and user chat booking summaries", async () => {
+  const adminDb = testEnv.authenticatedContext("admin", {
+    admin: true,
+    adminType: "admin",
+  }).firestore();
+  const otherDb = testEnv.authenticatedContext("other").firestore();
+
+  await assertSucceeds(updateDoc(doc(adminDb, "assets/asset-1/bookings/booking-1"), { status: "Cancelled" }));
+  await assertSucceeds(updateDoc(doc(adminDb, "users/renter/bookings/booking-1"), { status: "Cancelled" }));
+  await assertSucceeds(updateDoc(doc(adminDb, "userChats/owner/chats/chat-1"), { bookingStatus: "Cancelled" }));
+  await assertFails(updateDoc(doc(otherDb, "assets/asset-1/bookings/booking-1"), { status: "Cancelled" }));
+});
+
 test("booking reads are limited to renter and owner participants", async () => {
   const ownerDb = testEnv.authenticatedContext("owner").firestore();
   const renterDb = testEnv.authenticatedContext("renter").firestore();
