@@ -14,6 +14,50 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.admin == true;
     }
 
+    function isVerificationLevel(level) {
+      return level in ['None', 'Basic', 'Full'];
+    }
+
+    function currentUserVerification() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.verified;
+    }
+
+    function currentUserCanRent() {
+      return isSignedIn() && currentUserVerification() in ['Basic', 'Full'];
+    }
+
+    function currentUserCanList() {
+      return isSignedIn() && currentUserVerification() == 'Full';
+    }
+
+    function isValidUserCreate(uid) {
+      return isSelf(uid) &&
+        request.resource.data.uid == uid &&
+        (
+          request.resource.data.verified == 'None' ||
+          (
+            request.resource.data.verified == 'Basic' &&
+            request.auth.token.email_verified == true
+          )
+        );
+    }
+
+    function isValidUserSelfUpdate(uid) {
+      return isSelf(uid) &&
+        isVerificationLevel(request.resource.data.verified) &&
+        (!('fullVerification' in request.resource.data) ||
+          request.resource.data.fullVerification == resource.data.fullVerification ||
+          request.resource.data.fullVerification.status == 'Pending') &&
+        (
+          request.resource.data.verified == resource.data.verified ||
+          (
+            resource.data.verified == 'None' &&
+            request.resource.data.verified == 'Basic' &&
+            request.auth.token.email_verified == true
+          )
+        );
+    }
+
     function isValidAssetAudit() {
       return request.resource.data.keys().hasOnly(['type', 'notes', 'createdBy', 'createdAt']) &&
         request.resource.data.type in ['Rejected', 'Edited', 'Approved', 'Deleted'] &&
@@ -99,15 +143,18 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read: if isSignedIn();
-      allow create: if isSelf(uid);
-      allow update, delete: if isSelf(uid);
+      allow create: if isValidUserCreate(uid);
+      allow update: if isAdmin() || isValidUserSelfUpdate(uid);
+      allow delete: if isSelf(uid);
 
       match /assets/{assetId} {
-        allow read, write: if isSelf(uid) || isAdmin();
+        allow read: if isSelf(uid) || isAdmin();
+        allow write: if isAdmin() || (isSelf(uid) && currentUserCanList());
       }
 
       match /saved/{assetId} {
-        allow read, write: if isSelf(uid);
+        allow read: if isSelf(uid);
+        allow write: if isSelf(uid) && currentUserCanRent();
       }
 
       match /bookings/{bookingId} {
@@ -138,9 +185,10 @@ service cloud.firestore {
     match /assets/{assetId} {
       allow read: if true;
       allow create: if isSignedIn() &&
-        request.resource.data.ownerId == request.auth.uid;
+        request.resource.data.ownerId == request.auth.uid &&
+        currentUserCanList();
       allow update, delete: if isAdmin() ||
-        (isSignedIn() && resource.data.ownerId == request.auth.uid);
+        (isSignedIn() && resource.data.ownerId == request.auth.uid && currentUserCanList());
 
       match /bookings/{bookingId} {
         allow read: if isSignedIn();
@@ -169,7 +217,7 @@ service cloud.firestore {
 
       match /messages/{messageId} {
         allow read: if isAdmin() || isChatParticipant(chatId);
-        allow create: if isSignedIn() && isChatParticipant(chatId);
+        allow create: if isSignedIn() && isChatParticipant(chatId) && currentUserCanRent();
         allow update, delete: if false;
       }
     }
@@ -186,9 +234,10 @@ service cloud.firestore {
         allow create: if false;
         allow update: if isSignedIn() &&
           (isAdmin() ||
-            isSelf(uid) ||
-            request.resource.data.lastMessageSenderId == request.auth.uid);
-        allow delete: if isSelf(uid);
+            (currentUserCanRent() &&
+              (isSelf(uid) ||
+                request.resource.data.lastMessageSenderId == request.auth.uid)));
+        allow delete: if isSelf(uid) && currentUserCanRent();
       }
     }
   }

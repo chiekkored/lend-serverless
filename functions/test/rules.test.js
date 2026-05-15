@@ -199,9 +199,9 @@ async function seedFirestore() {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
 
-    await setDoc(doc(db, "users/owner"), { uid: "owner", firstName: "Owner" });
-    await setDoc(doc(db, "users/renter"), { uid: "renter", firstName: "Renter" });
-    await setDoc(doc(db, "users/other"), { uid: "other", firstName: "Other" });
+    await setDoc(doc(db, "users/owner"), { uid: "owner", firstName: "Owner", verified: "Full" });
+    await setDoc(doc(db, "users/renter"), { uid: "renter", firstName: "Renter", verified: "Basic" });
+    await setDoc(doc(db, "users/other"), { uid: "other", firstName: "Other", verified: "None" });
     await setDoc(doc(db, "assets/asset-1"), assetData("owner"));
     await setDoc(doc(db, "users/owner/assets/asset-1"), simpleAssetData("owner"));
     await setDoc(doc(db, "assets/asset-1/bookings/booking-1"), bookingData());
@@ -224,6 +224,7 @@ function assetData(ownerId) {
     owner: {
       uid: ownerId,
       firstName: "Owner",
+      verified: "Full",
     },
     title: "Camera",
     isDeleted: false,
@@ -237,6 +238,7 @@ function simpleAssetData(ownerId) {
     owner: {
       uid: ownerId,
       firstName: "Owner",
+      verified: "Full",
     },
     title: "Camera",
     isDeleted: false,
@@ -264,10 +266,12 @@ function bookingData() {
       id: "asset-1",
       owner: {
         uid: "owner",
+        verified: "Full",
       },
     },
     renter: {
       uid: "renter",
+      verified: "Basic",
     },
     createdAt: new Date("2026-04-01T00:00:00.000Z"),
     startDate: new Date("2026-04-10T00:00:00.000Z"),

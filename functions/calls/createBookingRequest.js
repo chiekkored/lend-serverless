@@ -51,6 +51,10 @@ exports.createBookingRequest = async (request) => {
     throwAndLogHttpsError("failed-precondition", "Asset is unavailable");
   }
 
+  if (!["Basic", "Full"].includes(renter.verified)) {
+    throwAndLogHttpsError("failed-precondition", "Verify your email before booking");
+  }
+
   if (!asset.ownerId || !asset.owner) {
     throwAndLogHttpsError("failed-precondition", "Asset owner is missing");
   }
@@ -163,6 +167,7 @@ function toSimpleUser(user, uid) {
     firstName: user.firstName || null,
     lastName: user.lastName || null,
     photoUrl: user.photoUrl || null,
+    verified: user.verified || "None",
     userMetadataVersion: user.userMetadataVersion || 1,
   };
 }
