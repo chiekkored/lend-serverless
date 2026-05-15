@@ -45,9 +45,7 @@ service cloud.firestore {
     function isValidUserSelfUpdate(uid) {
       return isSelf(uid) &&
         isVerificationLevel(request.resource.data.verified) &&
-        (!('fullVerification' in request.resource.data) ||
-          request.resource.data.fullVerification == resource.data.fullVerification ||
-          request.resource.data.fullVerification.status == 'Pending') &&
+        isValidFullVerificationSelfUpdate() &&
         (
           request.resource.data.verified == resource.data.verified ||
           (
@@ -56,6 +54,65 @@ service cloud.firestore {
             request.auth.token.email_verified == true
           )
         );
+    }
+
+    function isValidFullVerificationSelfUpdate() {
+      return !('fullVerification' in request.resource.data) ||
+        request.resource.data.fullVerification == resource.data.fullVerification ||
+        (
+          request.resource.data.fullVerification.keys().hasOnly([
+            'status',
+            'activeSubmissionId',
+            'submittedAt',
+            'reviewedAt'
+          ]) &&
+          request.resource.data.fullVerification.status == 'Pending' &&
+          request.resource.data.fullVerification.activeSubmissionId is string &&
+          request.resource.data.fullVerification.submittedAt is timestamp &&
+          request.resource.data.fullVerification.reviewedAt == null &&
+          existsAfter(/databases/$(database)/documents/verificationSubmissions/$(request.resource.data.fullVerification.activeSubmissionId)) &&
+          getAfter(/databases/$(database)/documents/verificationSubmissions/$(request.resource.data.fullVerification.activeSubmissionId)).data.userId == request.auth.uid &&
+          getAfter(/databases/$(database)/documents/verificationSubmissions/$(request.resource.data.fullVerification.activeSubmissionId)).data.status == 'Pending'
+        );
+    }
+
+    function hasPendingVerificationSubmission() {
+      return ('fullVerification' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.fullVerification is map &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.fullVerification.status == 'Pending';
+    }
+
+    function isValidVerificationSubmissionCreate(submissionId) {
+      return isSignedIn() &&
+        !hasPendingVerificationSubmission() &&
+        request.resource.data.keys().hasOnly([
+          'id',
+          'userId',
+          'phone',
+          'address',
+          'faceKycStatus',
+          'status',
+          'submittedAt',
+          'reviewedAt'
+        ]) &&
+        request.resource.data.id == submissionId &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.phone is string &&
+        request.resource.data.address is string &&
+        request.resource.data.faceKycStatus == 'Submitted' &&
+        request.resource.data.status == 'Pending' &&
+        request.resource.data.submittedAt is timestamp &&
+        request.resource.data.reviewedAt == null &&
+        getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.fullVerification.status == 'Pending' &&
+        getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.fullVerification.activeSubmissionId == submissionId;
+    }
+
+    function isValidVerificationSubmissionAdminUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['status', 'reviewedAt']) &&
+        request.resource.data.status in ['Pending', 'Approved', 'Rejected'] &&
+        (!('reviewedAt' in request.resource.data) ||
+          request.resource.data.reviewedAt is timestamp);
     }
 
     function isValidAssetAudit() {
@@ -168,6 +225,13 @@ service cloud.firestore {
           allow write: if false;
         }
       }
+    }
+
+    match /verificationSubmissions/{submissionId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isValidVerificationSubmissionCreate(submissionId);
+      allow update: if isAdmin() && isValidVerificationSubmissionAdminUpdate();
+      allow delete: if false;
     }
 
     match /adminUsers/{uid} {

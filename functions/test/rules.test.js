@@ -14,8 +14,10 @@ const {
   getDocs,
   collection,
   getDoc,
+  increment,
   setDoc,
   updateDoc,
+  writeBatch,
 } = require("firebase/firestore");
 const {
   getBytes,
@@ -68,6 +70,75 @@ test("users can manage only their own profile, saved docs, and asset mirrors", a
 
   await assertSucceeds(setDoc(doc(ownerDb, "users/owner/assets/asset-2"), { id: "asset-2" }));
   await assertFails(setDoc(doc(otherDb, "users/owner/assets/asset-3"), { id: "asset-3" }));
+});
+
+test("users can create one pending verification submission atomically", async () => {
+  const ownerDb = testEnv.authenticatedContext("owner").firestore();
+  const otherDb = testEnv.authenticatedContext("other").firestore();
+
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await updateDoc(doc(db, "users/owner"), {
+      verified: "Basic",
+      fullVerification: null,
+      userMetadataVersion: 1,
+    });
+  });
+
+  const batch = writeBatch(ownerDb);
+  batch.set(doc(ownerDb, "verificationSubmissions/submission-1"), verificationSubmissionData("submission-1", "owner"));
+  batch.update(doc(ownerDb, "users/owner"), {
+    phone: "09171234567",
+    fullVerification: verificationSummaryData("submission-1"),
+    userMetadataVersion: increment(1),
+  });
+
+  await assertSucceeds(batch.commit());
+  await assertFails(setDoc(
+    doc(otherDb, "verificationSubmissions/submission-other"),
+    verificationSubmissionData("submission-other", "owner"),
+  ));
+});
+
+test("users cannot create another verification submission while pending", async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await updateDoc(doc(db, "users/owner"), {
+      fullVerification: verificationSummaryData("submission-existing"),
+    });
+  });
+
+  const ownerDb = testEnv.authenticatedContext("owner").firestore();
+  const batch = writeBatch(ownerDb);
+  batch.set(doc(ownerDb, "verificationSubmissions/submission-2"), verificationSubmissionData("submission-2", "owner"));
+  batch.update(doc(ownerDb, "users/owner"), {
+    phone: "09176543210",
+    fullVerification: verificationSummaryData("submission-2"),
+    userMetadataVersion: increment(1),
+  });
+
+  await assertFails(batch.commit());
+});
+
+test("admins can review verification submissions and non-admins cannot", async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, "verificationSubmissions/submission-1"), verificationSubmissionData("submission-1", "owner"));
+  });
+
+  const adminDb = testEnv.authenticatedContext("admin", {
+    admin: true,
+    adminType: "admin",
+  }).firestore();
+  const ownerDb = testEnv.authenticatedContext("owner").firestore();
+
+  await assertSucceeds(updateDoc(doc(adminDb, "verificationSubmissions/submission-1"), {
+    reviewedAt: new Date("2026-04-03T00:00:00.000Z"),
+    status: "Approved",
+  }));
+  await assertFails(updateDoc(doc(ownerDb, "verificationSubmissions/submission-1"), {
+    status: "Rejected",
+  }));
 });
 
 test("asset writes are owner-scoped and booking/rating writes remain backend-only", async () => {
@@ -255,6 +326,28 @@ function auditData(type) {
       name: "Admin User",
     },
     createdAt: new Date("2026-04-02T00:00:00.000Z"),
+  };
+}
+
+function verificationSummaryData(submissionId) {
+  return {
+    status: "Pending",
+    activeSubmissionId: submissionId,
+    submittedAt: new Date("2026-04-02T00:00:00.000Z"),
+    reviewedAt: null,
+  };
+}
+
+function verificationSubmissionData(id, userId) {
+  return {
+    id,
+    userId,
+    phone: "09171234567",
+    address: "Makati City",
+    faceKycStatus: "Submitted",
+    status: "Pending",
+    submittedAt: new Date("2026-04-02T00:00:00.000Z"),
+    reviewedAt: null,
   };
 }
 
