@@ -1,13 +1,14 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const dotenv = require("dotenv");
+const { saveAccountFeedback } = require("../utils/accountFeedback.util");
 const { throwAndLogHttpsError } = require("../utils/error.util");
 
 dotenv.config();
 
 exports.deleteUserAccount = async (request) => {
   const auth = request.auth;
-  const { uid } = request.data;
+  const { uid, feedback } = request.data;
 
   if (!auth) {
     throwAndLogHttpsError("permission-denied", "User must be authenticated");
@@ -33,6 +34,10 @@ exports.deleteUserAccount = async (request) => {
 
   try {
     const db = admin.firestore();
+
+    if (isSelf) {
+      await saveAccountFeedback(feedback, "delete", db);
+    }
 
     // Revoke existing sessions
     await admin.auth().revokeRefreshTokens(uid);

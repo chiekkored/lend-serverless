@@ -1,13 +1,14 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const dotenv = require("dotenv");
+const { saveAccountFeedback } = require("../utils/accountFeedback.util");
 const { throwAndLogHttpsError } = require("../utils/error.util");
 
 dotenv.config();
 
 exports.disableUser = async (request) => {
   const auth = request.auth;
-  const { uid, disabled = true } = request.data;
+  const { uid, disabled = true, feedback } = request.data;
 
   // Must be authenticated
   if (!auth) {
@@ -37,6 +38,10 @@ exports.disableUser = async (request) => {
   }
 
   try {
+    if (isSelf && disabled === true) {
+      await saveAccountFeedback(feedback, "disable");
+    }
+
     // Disable / enable user
     await admin.auth().updateUser(uid, {
       disabled,

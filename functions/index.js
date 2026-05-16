@@ -11,6 +11,7 @@ const { submitBookingReview } = require("./calls/submitBookingReview.js");
 const { cancelBooking } = require("./calls/cancelBooking.js");
 const { createAdminUser } = require("./calls/createAdminUser.js");
 const { deleteAdminUser } = require("./calls/deleteAdminUser.js");
+const { deleteUserAccount } = require("./calls/deleteUser.js");
 const { updateAdminUser } = require("./calls/updateAdminUser.js");
 const { disableUser } = require("./calls/disableUser.js");
 const { syncUserMetadata } = require("./scheduled/syncUserMetadata.js");
@@ -31,6 +32,7 @@ exports.submitBookingReview = functions.https.onCall(submitBookingReview);
 exports.cancelBooking = functions.https.onCall(cancelBooking);
 exports.createAdminUser = functions.https.onCall(createAdminUser);
 exports.deleteAdminUser = functions.https.onCall(deleteAdminUser);
+exports.deleteUser = functions.https.onCall(deleteUserAccount);
 exports.updateAdminUser = functions.https.onCall(updateAdminUser);
 exports.disableUser = functions.https.onCall(disableUser);
 if (process.env.FUNCTIONS_EMULATOR === "true") {

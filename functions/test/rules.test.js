@@ -179,6 +179,53 @@ test("admins can create asset audits and non-admins cannot", async () => {
   await assertFails(updateDoc(doc(adminDb, "assets/asset-1/audits/audit-1"), { notes: "Changed" }));
 });
 
+test("account feedback is backend-written and admin-readable", async () => {
+  const ownerDb = testEnv.authenticatedContext("owner").firestore();
+  const otherDb = testEnv.authenticatedContext("other").firestore();
+  const guestDb = testEnv.unauthenticatedContext().firestore();
+  const adminDb = testEnv.authenticatedContext("admin", {
+    admin: true,
+    adminType: "admin",
+  }).firestore();
+
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(
+      doc(db, "accountFeedback/feedback-1"),
+      accountFeedbackData("feedback-1"),
+    );
+  });
+
+  await assertSucceeds(getDoc(doc(adminDb, "accountFeedback/feedback-1")));
+  await assertFails(getDoc(doc(otherDb, "accountFeedback/feedback-1")));
+  await assertFails(updateDoc(doc(ownerDb, "accountFeedback/feedback-1"), { reason: "Changed" }));
+  await assertFails(deleteDoc(doc(ownerDb, "accountFeedback/feedback-1")));
+
+  await assertFails(setDoc(
+    doc(ownerDb, "accountFeedback/feedback-owner"),
+    accountFeedbackData("feedback-owner"),
+  ));
+  await assertFails(setDoc(
+    doc(guestDb, "accountFeedback/feedback-guest"),
+    accountFeedbackData("feedback-guest"),
+  ));
+  await assertFails(setDoc(
+    doc(ownerDb, "accountFeedback/feedback-personal"),
+    {
+      ...accountFeedbackData("feedback-personal"),
+      uid: "owner",
+      email: "owner@example.com",
+    },
+  ));
+  await assertFails(setDoc(
+    doc(ownerDb, "accountFeedback/feedback-disable-text"),
+    accountFeedbackData("feedback-disable-text", {
+      action: "disable",
+      feedback: "This should only be accepted for delete feedback.",
+    }),
+  ));
+});
+
 test("admins can update booking mirrors and user chat booking summaries", async () => {
   const adminDb = testEnv.authenticatedContext("admin", {
     admin: true,
@@ -326,6 +373,17 @@ function auditData(type) {
       name: "Admin User",
     },
     createdAt: new Date("2026-04-02T00:00:00.000Z"),
+  };
+}
+
+function accountFeedbackData(id, overrides = {}) {
+  return {
+    id,
+    action: "delete",
+    reason: "No longer need Lend",
+    feedback: "Optional product feedback",
+    createdAt: new Date("2026-04-02T00:00:00.000Z"),
+    ...overrides,
   };
 }
 
