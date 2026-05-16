@@ -12,6 +12,7 @@ const { cancelBooking } = require("./calls/cancelBooking.js");
 const { createAdminUser } = require("./calls/createAdminUser.js");
 const { deleteAdminUser } = require("./calls/deleteAdminUser.js");
 const { updateAdminUser } = require("./calls/updateAdminUser.js");
+const { disableUser } = require("./calls/disableUser.js");
 const { syncUserMetadata } = require("./scheduled/syncUserMetadata.js");
 
 // Initialize Firebase Admin SDK only once
@@ -28,12 +29,13 @@ exports.confirmBooking = functions.https.onCall(confirmBooking);
 exports.createBookingRequest = functions.https.onCall(createBookingRequest);
 exports.submitBookingReview = functions.https.onCall(submitBookingReview);
 exports.cancelBooking = functions.https.onCall(cancelBooking);
-exports.createAdminUser = createAdminUser;
-exports.deleteAdminUser = deleteAdminUser;
-exports.updateAdminUser = updateAdminUser;
+exports.createAdminUser = functions.https.onCall(createAdminUser);
+exports.deleteAdminUser = functions.https.onCall(deleteAdminUser);
+exports.updateAdminUser = functions.https.onCall(updateAdminUser);
+exports.disableUser = functions.https.onCall(disableUser);
 if (process.env.FUNCTIONS_EMULATOR === "true") {
   const { bootstrapAdminUser } = require("./calls/bootstrapAdminUser.js");
-  exports.bootstrapAdminUser = bootstrapAdminUser;
+  exports.bootstrapAdminUser = functions.https.onCall(bootstrapAdminUser);
 }
 
 // Export HTTP-triggered function (for Cloud Tasks)

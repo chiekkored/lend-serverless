@@ -1,9 +1,6 @@
 const admin = require("firebase-admin");
 const { onRequest } = require("firebase-functions/v2/https");
-const {
-  jsonResponse,
-  splitDisplayName,
-} = require("../utils/adminUser.util");
+const { jsonResponse, splitDisplayName } = require("../utils/adminUser.util");
 
 if (process.env.FUNCTIONS_EMULATOR === "true") {
   require("dotenv").config({ path: ".secret.local" });
@@ -53,9 +50,7 @@ exports.bootstrapAdminUser = onRequest({ cors: true }, async (req, res) => {
 
   const normalizedEmail = email.trim().toLowerCase();
   const normalizedAdminType =
-    typeof adminType === "string" && adminType.trim()
-      ? adminType.trim().toLowerCase()
-      : "superadmin";
+    typeof adminType === "string" && adminType.trim() ? adminType.trim().toLowerCase() : "superadmin";
 
   if (!["superadmin", "admin", "moderator", "finance"].includes(normalizedAdminType)) {
     jsonResponse(res, 400, { error: "Invalid admin type." });
@@ -92,9 +87,7 @@ exports.bootstrapAdminUser = onRequest({ cors: true }, async (req, res) => {
 
     const adminUserRef = admin.firestore().collection("adminUsers").doc(user.uid);
     const adminUserSnap = await adminUserRef.get();
-    const { firstName, lastName } = splitDisplayName(
-      typeof displayName === "string" ? displayName.trim() : "",
-    );
+    const { firstName, lastName } = splitDisplayName(typeof displayName === "string" ? displayName.trim() : "");
 
     await adminUserRef.set(
       {
@@ -103,9 +96,7 @@ exports.bootstrapAdminUser = onRequest({ cors: true }, async (req, res) => {
         firstName,
         lastName,
         displayName:
-          typeof displayName === "string" && displayName.trim()
-            ? displayName.trim()
-            : user.displayName ?? null,
+          typeof displayName === "string" && displayName.trim() ? displayName.trim() : (user.displayName ?? null),
         photoUrl: user.photoURL ?? null,
         createdAt:
           adminUserSnap.exists && adminUserSnap.data()?.createdAt
