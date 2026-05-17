@@ -30,6 +30,9 @@ const {
 const {
   _test: declineOverlappingBookingsTest,
 } = require("../calls/declineOverlappingBookings");
+const {
+  _test: cancelBookingTest,
+} = require("../calls/cancelBooking");
 
 process.env.QR_SECRET = "test-secret";
 
@@ -333,4 +336,16 @@ test("decline overlap summary classifies partial mirror failures", () => {
     missingMirrorCount: 1,
     errorCount: 1,
   });
+});
+
+test("cancel booking reason is required and normalized", () => {
+  assert.equal(cancelBookingTest.normalizeCancelReason("  Found another listing  "), "Found another listing");
+  assert.throws(
+    () => cancelBookingTest.normalizeCancelReason(""),
+    /Missing cancellation reason/,
+  );
+  assert.throws(
+    () => cancelBookingTest.normalizeCancelReason("x".repeat(121)),
+    /Cancellation reason is too long/,
+  );
 });
