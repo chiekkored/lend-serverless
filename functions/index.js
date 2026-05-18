@@ -15,6 +15,7 @@ const { deleteUserAccount } = require("./calls/deleteUser.js");
 const { updateAdminUser } = require("./calls/updateAdminUser.js");
 const { disableUser } = require("./calls/disableUser.js");
 const { diditVerificationWebhook } = require("./calls/diditVerificationWebhook.js");
+const { getHomeRecommendations } = require("./calls/getHomeRecommendations.js");
 const { syncUserMetadata } = require("./scheduled/syncUserMetadata.js");
 
 // Initialize Firebase Admin SDK only once
@@ -36,6 +37,7 @@ exports.deleteAdminUser = functions.https.onCall(deleteAdminUser);
 exports.deleteUser = functions.https.onCall(deleteUserAccount);
 exports.updateAdminUser = functions.https.onCall(updateAdminUser);
 exports.disableUser = functions.https.onCall(disableUser);
+exports.getHomeRecommendations = functions.https.onCall(getHomeRecommendations);
 exports.diditVerificationWebhook = functions.https.onRequest(diditVerificationWebhook);
 if (process.env.FUNCTIONS_EMULATOR === "true") {
   const { bootstrapAdminUser } = require("./calls/bootstrapAdminUser.js");

@@ -151,6 +151,16 @@ exports.createBookingRequest = async (request) => {
       },
       { merge: true },
     );
+    transaction.set(
+      assetRef,
+      {
+        "engagement.bookingRequestCount": admin.firestore.FieldValue.increment(1),
+        "engagement.lastEngagedAt": admin.firestore.FieldValue.serverTimestamp(),
+        popularityScore: admin.firestore.FieldValue.increment(5),
+        recommendationScore: admin.firestore.FieldValue.increment(2),
+      },
+      { merge: true },
+    );
   });
 
   return {

@@ -89,6 +89,18 @@ exports.submitBookingReview = async (request) => {
       reviewCount: newCount,
     });
 
+    transaction.set(
+      assetRef,
+      {
+        "engagement.reviewCount": admin.firestore.FieldValue.increment(1),
+        "engagement.lastEngagedAt": now,
+        qualityScore: newAverage * Math.min(newCount, 10),
+        popularityScore: admin.firestore.FieldValue.increment(3),
+        recommendationScore: admin.firestore.FieldValue.increment(2),
+      },
+      { merge: true },
+    );
+
     transaction.update(userBookingRef, {
       status: BOOKING_STATUS.completed,
       lastUpdated: now,
