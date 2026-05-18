@@ -33,6 +33,9 @@ const {
 const {
   _test: cancelBookingTest,
 } = require("../calls/cancelBooking");
+const {
+  _test: submitBookingReviewTest,
+} = require("../calls/submitBookingReview");
 
 process.env.QR_SECRET = "test-secret";
 
@@ -349,3 +352,33 @@ test("cancel booking reason is required and normalized", () => {
     /Cancellation reason is too long/,
   );
 });
+
+test("review aggregate writes averageRating as a Firestore double for whole-number averages", () => {
+  const write = submitBookingReviewTest.buildAssetRatingAggregateWrite(assetRef(), {
+    averageRating: 5,
+    reviewCount: 1,
+  });
+
+  assert.deepEqual(write.update.fields.averageRating, { doubleValue: 5 });
+  assert.equal(write.update.fields.averageRating.integerValue, undefined);
+  assert.deepEqual(write.update.fields.reviewCount, { integerValue: 1 });
+  assert.deepEqual(write.updateMask.fieldPaths, ["averageRating", "reviewCount"]);
+});
+
+test("review aggregate writes averageRating as a Firestore double for fractional averages", () => {
+  const write = submitBookingReviewTest.buildAssetRatingAggregateWrite(assetRef(), {
+    averageRating: 4.5,
+    reviewCount: 2,
+  });
+
+  assert.deepEqual(write.update.fields.averageRating, { doubleValue: 4.5 });
+  assert.equal(write.update.fields.averageRating.integerValue, undefined);
+  assert.deepEqual(write.update.fields.reviewCount, { integerValue: 2 });
+});
+
+function assetRef() {
+  return {
+    path: "assets/asset-1",
+    formattedName: "projects/test-project/databases/(default)/documents/assets/asset-1",
+  };
+}

@@ -84,7 +84,7 @@ exports.submitBookingReview = async (request) => {
       timestamp: now,
     });
 
-    transaction.update(assetRef, {
+    updateAssetRatingAggregate(transaction, assetRef, {
       averageRating: newAverage,
       reviewCount: newCount,
     });
@@ -139,4 +139,37 @@ exports.submitBookingReview = async (request) => {
     success: true,
     message: "Review submitted successfully",
   };
+};
+
+function updateAssetRatingAggregate(transaction, assetRef, { averageRating, reviewCount }) {
+  transaction._writeBatch._ops.push({
+    docPath: assetRef.path,
+    op: () => buildAssetRatingAggregateWrite(assetRef, { averageRating, reviewCount }),
+  });
+}
+
+function buildAssetRatingAggregateWrite(assetRef, { averageRating, reviewCount }) {
+  return {
+    update: {
+      name: assetRef.formattedName,
+      fields: {
+        averageRating: {
+          doubleValue: averageRating,
+        },
+        reviewCount: {
+          integerValue: reviewCount,
+        },
+      },
+    },
+    updateMask: {
+      fieldPaths: ["averageRating", "reviewCount"],
+    },
+    currentDocument: {
+      exists: true,
+    },
+  };
+}
+
+exports._test = {
+  buildAssetRatingAggregateWrite,
 };
