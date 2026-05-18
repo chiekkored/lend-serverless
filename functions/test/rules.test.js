@@ -54,8 +54,26 @@ test("guests can read public assets but cannot create protected documents", asyn
   const db = testEnv.unauthenticatedContext().firestore();
 
   await assertSucceeds(getDoc(doc(db, "assets/asset-1")));
+  await assertSucceeds(getDocs(collection(db, "assets")));
   await assertFails(setDoc(doc(db, "assets/asset-guest"), assetData("guest")));
   await assertFails(setDoc(doc(db, "users/guest"), { uid: "guest" }));
+});
+
+test("prod startup reads are allowed for public and signed-in user data", async () => {
+  const ownerDb = testEnv.authenticatedContext("owner").firestore();
+  const otherDb = testEnv.authenticatedContext("other").firestore();
+
+  await assertSucceeds(getDocs(collection(ownerDb, "assets")));
+  await assertSucceeds(getDoc(doc(ownerDb, "users/owner")));
+  await assertSucceeds(getDocs(collection(ownerDb, "users/owner/assets")));
+  await assertSucceeds(getDocs(collection(ownerDb, "users/owner/saved")));
+  await assertSucceeds(getDocs(collection(ownerDb, "users/owner/bookings")));
+  await assertSucceeds(getDocs(collection(ownerDb, "userChats/owner/chats")));
+
+  await assertFails(getDocs(collection(otherDb, "users/owner/assets")));
+  await assertFails(getDocs(collection(otherDb, "users/owner/saved")));
+  await assertFails(getDocs(collection(otherDb, "users/owner/bookings")));
+  await assertFails(getDocs(collection(otherDb, "userChats/owner/chats")));
 });
 
 test("users can manage only their own profile, saved docs, and asset mirrors", async () => {
@@ -239,14 +257,14 @@ test("admins can update booking mirrors and user chat booking summaries", async 
   await assertFails(updateDoc(doc(otherDb, "assets/asset-1/bookings/booking-1"), { status: "Cancelled" }));
 });
 
-test("booking reads are limited to renter and owner participants", async () => {
+test("booking reads allow signed-in asset booking reads and limit user mirrors", async () => {
   const ownerDb = testEnv.authenticatedContext("owner").firestore();
   const renterDb = testEnv.authenticatedContext("renter").firestore();
   const otherDb = testEnv.authenticatedContext("other").firestore();
 
   await assertSucceeds(getDoc(doc(ownerDb, "assets/asset-1/bookings/booking-1")));
   await assertSucceeds(getDoc(doc(renterDb, "assets/asset-1/bookings/booking-1")));
-  await assertFails(getDoc(doc(otherDb, "assets/asset-1/bookings/booking-1")));
+  await assertSucceeds(getDoc(doc(otherDb, "assets/asset-1/bookings/booking-1")));
 
   await assertSucceeds(getDoc(doc(ownerDb, "users/renter/bookings/booking-1")));
   await assertSucceeds(getDoc(doc(renterDb, "users/renter/bookings/booking-1")));
