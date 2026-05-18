@@ -9,22 +9,35 @@ function normalizeLocationPart(value) {
 
 function normalizeLocationInput(location = {}) {
   const country = typeof location.country === "string" ? location.country.trim() : "";
-  const cityState = typeof location.cityState === "string" ? location.cityState.trim() : "";
+  const locality =
+    typeof location.locality === "string"
+      ? location.locality.trim()
+      : typeof location.cityState === "string"
+        ? location.cityState.trim()
+        : "";
+  const lat = typeof location.lat === "number" ? location.lat : Number(location.lat);
+  const lng = typeof location.lng === "number" ? location.lng : Number(location.lng);
   const countryKey = normalizeLocationPart(location.countryKey || country);
-  const cityKey = normalizeLocationPart(location.cityKey || cityState);
+  const localityKey = normalizeLocationPart(location.localityKey || location.cityKey || locality);
+  const geohash = typeof location.geohash === "string" ? location.geohash.trim() : "";
 
   return {
     country,
-    cityState,
+    locality,
+    lat: Number.isFinite(lat) ? lat : null,
+    lng: Number.isFinite(lng) ? lng : null,
+    geohash,
     countryKey,
-    cityKey,
+    localityKey,
+    cityState: locality,
+    cityKey: localityKey,
   };
 }
 
 function feedId({ type, scope, location, category }) {
   const categoryKey = normalizeLocationPart(category || "all");
-  if (scope === "city" && location.cityKey) {
-    return `${type}_city:${location.countryKey}:${location.cityKey}:${categoryKey}`;
+  if (scope === "locality" && location.localityKey) {
+    return `${type}_locality:${location.countryKey}:${location.localityKey}:${categoryKey}`;
   }
   return `${type}_country:${location.countryKey}:${categoryKey}`;
 }

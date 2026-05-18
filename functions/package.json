@@ -2,10 +2,11 @@
   "name": "functions",
   "description": "Cloud Functions for Firebase",
   "scripts": {
-    "test": "node --test test/booking.util.test.js test/accountFeedback.util.test.js test/didit.util.test.js",
+    "test": "node --test test/booking.util.test.js test/accountFeedback.util.test.js test/didit.util.test.js test/recommendations.util.test.js",
     "test:rules": "cd .. && firebase emulators:exec --only firestore,storage \"cd functions && node --test test/rules.test.js\"",
     "backfill:pending-booking-counts": "node scripts/backfillPendingBookingCounts.js",
     "backfill:chat-booking-dates": "node scripts/backfillChatBookingDates.js",
+    "backfill:asset-locations": "node scripts/backfillAssetLocations.js",
     "migrate:admin-users": "node scripts/migrateAdminUsersCollection.js",
     "serve": "firebase emulators:start --only functions",
     "shell": "firebase functions:shell",
@@ -23,6 +24,7 @@
     "dotenv": "^17.2.3",
     "firebase-admin": "^12.7.0",
     "firebase-functions": "^6.6.0",
+    "geofire-common": "^6.0.0",
     "uuid": "^7.0.3"
   },
   "devDependencies": {

@@ -82,24 +82,90 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.fullVerification.status == 'Pending';
     }
 
+    function isValidLocationMap(location) {
+      return location is map &&
+        location.keys().hasOnly([
+          'plusCode',
+          'streetNumber',
+          'route',
+          'locality',
+          'administrativeAreaLevel2',
+          'administrativeAreaLevel1',
+          'country',
+          'countryShortName',
+          'postalCode',
+          'formattedAddress',
+          'lat',
+          'lng',
+          'geohash'
+        ]) &&
+        location.lat is number &&
+        location.lng is number &&
+        location.geohash is string &&
+        (!('plusCode' in location) || location.plusCode is string) &&
+        (!('streetNumber' in location) || location.streetNumber is string) &&
+        (!('route' in location) || location.route is string) &&
+        (!('locality' in location) || location.locality is string) &&
+        (!('administrativeAreaLevel2' in location) || location.administrativeAreaLevel2 is string) &&
+        (!('administrativeAreaLevel1' in location) || location.administrativeAreaLevel1 is string) &&
+        (!('country' in location) || location.country is string) &&
+        (!('countryShortName' in location) || location.countryShortName is string) &&
+        (!('postalCode' in location) || location.postalCode is string) &&
+        (!('formattedAddress' in location) || location.formattedAddress is string);
+    }
+
     function isValidVerificationSubmissionCreate(submissionId) {
       return isSignedIn() &&
         !hasPendingVerificationSubmission() &&
         request.resource.data.keys().hasOnly([
           'id',
           'userId',
+          'firstName',
+          'lastName',
+          'dateOfBirth',
+          'email',
           'phone',
           'address',
+          'location',
+          'photoUrl',
           'faceKycStatus',
+          'verificationProvider',
+          'diditSessionId',
+          'diditWorkflowId',
+          'diditStatus',
+          'diditDecision',
+          'diditStartedAt',
+          'diditCompletedAt',
           'status',
           'submittedAt',
           'reviewedAt'
         ]) &&
         request.resource.data.id == submissionId &&
         request.resource.data.userId == request.auth.uid &&
+        request.resource.data.firstName is string &&
+        request.resource.data.lastName is string &&
+        request.resource.data.dateOfBirth is timestamp &&
+        request.resource.data.email is string &&
         request.resource.data.phone is string &&
         request.resource.data.address is string &&
-        request.resource.data.faceKycStatus == 'Submitted' &&
+        isValidLocationMap(request.resource.data.location) &&
+        (!('photoUrl' in request.resource.data) ||
+          request.resource.data.photoUrl == null ||
+          request.resource.data.photoUrl is string) &&
+        request.resource.data.faceKycStatus is string &&
+        request.resource.data.verificationProvider is string &&
+        (!('diditSessionId' in request.resource.data) ||
+          request.resource.data.diditSessionId == null ||
+          request.resource.data.diditSessionId is string) &&
+        (!('diditWorkflowId' in request.resource.data) ||
+          request.resource.data.diditWorkflowId == null ||
+          request.resource.data.diditWorkflowId is string) &&
+        (!('diditStatus' in request.resource.data) ||
+          request.resource.data.diditStatus == null ||
+          request.resource.data.diditStatus is string) &&
+        (!('diditDecision' in request.resource.data) ||
+          request.resource.data.diditDecision == null ||
+          request.resource.data.diditDecision is map) &&
         request.resource.data.status == 'Pending' &&
         request.resource.data.submittedAt is timestamp &&
         request.resource.data.reviewedAt == null &&

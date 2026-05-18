@@ -1,4 +1,5 @@
 const admin = require("firebase-admin");
+const geofire = require("geofire-common");
 const { throwAndLogHttpsError } = require("../utils/error.util");
 const {
   FEED_LIMIT,
@@ -8,6 +9,9 @@ const {
   rankAndDedupe,
   toAssetPreview,
 } = require("../utils/recommendations.util");
+
+const NEARBY_RADIUS_KM = 25;
+const FALLBACK_THRESHOLD = 12;
 
 exports.getHomeRecommendations = async (request) => {
   const auth = request.auth;
@@ -22,7 +26,7 @@ exports.getHomeRecommendations = async (request) => {
   }
 
   const normalizedLocation = normalizeLocationInput(location);
-  if (!normalizedLocation.countryKey) {
+  if (!normalizedLocation.countryKey && !hasCoordinates(normalizedLocation)) {
     return {
       recommended: [],
       popular: [],
@@ -37,37 +41,67 @@ exports.getHomeRecommendations = async (request) => {
     ? categoryHints.filter((item) => typeof item === "string" && item.trim()).slice(0, 5)
     : [];
 
-  const cityFeeds =
-    normalizedLocation.cityKey
+  const nearbyFeeds = hasCoordinates(normalizedLocation)
+    ? await readNearbyFeeds(db, {
+        location: normalizedLocation,
+        categoryHints: normalizedHints,
+      })
+    : { recommended: [], popular: [] };
+
+  const localityFeeds =
+    normalizedLocation.countryKey && normalizedLocation.localityKey
       ? await readScopedFeeds(db, {
           location: normalizedLocation,
           categoryHints: normalizedHints,
-          scope: "city",
+          scope: "locality",
         })
       : null;
 
-  const countryFeeds = await readScopedFeeds(db, {
-    location: normalizedLocation,
-    categoryHints: normalizedHints,
-    scope: "country",
-  });
+  const countryFeeds = normalizedLocation.countryKey
+    ? await readScopedFeeds(db, {
+        location: normalizedLocation,
+        categoryHints: normalizedHints,
+        scope: "country",
+      })
+    : { recommended: [], popular: [] };
 
-  const recommended = mergeFeeds([
-    cityFeeds?.recommended,
-    countryFeeds.recommended,
-  ]).slice(0, limit);
-  const popular = mergeFeeds([
-    cityFeeds?.popular,
-    countryFeeds.popular,
-  ]).slice(0, limit);
+  const recommendedFeeds = [nearbyFeeds.recommended];
+  const popularFeeds = [nearbyFeeds.popular];
+  if (nearbyFeeds.recommended.length < FALLBACK_THRESHOLD) {
+    recommendedFeeds.push(localityFeeds?.recommended, countryFeeds.recommended);
+  }
+  if (nearbyFeeds.popular.length < FALLBACK_THRESHOLD) {
+    popularFeeds.push(localityFeeds?.popular, countryFeeds.popular);
+  }
+
+  const recommended = mergeFeeds(recommendedFeeds).slice(0, limit);
+  const popular = mergeFeeds(popularFeeds).slice(0, limit);
 
   return {
     recommended,
     popular,
-    scopeUsed: cityFeeds && (cityFeeds.recommended.length || cityFeeds.popular.length) ? "city" : "country",
+    scopeUsed: nearbyFeeds.recommended.length || nearbyFeeds.popular.length
+      ? "nearby"
+      : localityFeeds && (localityFeeds.recommended.length || localityFeeds.popular.length)
+        ? "locality"
+        : normalizedLocation.countryKey
+          ? "country"
+          : "none",
     generatedAt: admin.firestore.Timestamp.now().toMillis(),
   };
 };
+
+function hasCoordinates(location) {
+  return Number.isFinite(location.lat) && Number.isFinite(location.lng);
+}
+
+async function readNearbyFeeds(db, { location, categoryHints }) {
+  const assets = await buildNearbyAssets(db, { location });
+  return {
+    recommended: rankAndDedupe(assets, { categoryHints, type: "recommended" }),
+    popular: rankAndDedupe(assets, { categoryHints: [], type: "popular" }),
+  };
+}
 
 async function readScopedFeeds(db, { location, categoryHints, scope }) {
   const recommendedFeed = await readOrRefreshFeed(db, {
@@ -111,7 +145,7 @@ async function readOrRefreshFeed(db, { type, location, categoryHints, scope }) {
       type,
       scope,
       countryKey: location.countryKey,
-      cityKey: scope === "city" ? location.cityKey : null,
+      localityKey: scope === "locality" ? location.localityKey : null,
       categoryHints,
       items,
       generatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -129,13 +163,53 @@ async function buildFeed(db, { type, location, categoryHints, scope }) {
     .where("status", "==", "Available")
     .where("location.country", "==", location.country);
 
-  if (scope === "city" && location.cityState) {
-    query = query.where("location.cityState", "==", location.cityState);
+  if (scope === "locality" && location.locality) {
+    query = query.where("location.locality", "==", location.locality);
   }
 
   const snapshot = await query.orderBy("createdAt", "desc").limit(FEED_LIMIT).get();
   const assets = snapshot.docs.map(toAssetPreview);
   return rankAndDedupe(assets, { categoryHints, type });
+}
+
+async function buildNearbyAssets(db, { location }) {
+  const center = [location.lat, location.lng];
+  const radiusInM = NEARBY_RADIUS_KM * 1000;
+  const bounds = geofire.geohashQueryBounds(center, radiusInM);
+  const snapshots = await Promise.all(
+    bounds.map(([start, end]) =>
+      db
+        .collection("assets")
+        .where("isDeleted", "==", false)
+        .where("status", "==", "Available")
+        .orderBy("location.geohash")
+        .startAt(start)
+        .endAt(end)
+        .get(),
+    ),
+  );
+  const assetsById = new Map();
+
+  for (const snapshot of snapshots) {
+    for (const doc of snapshot.docs) {
+      const asset = toAssetPreview(doc);
+      const assetLat = Number(asset.location?.lat);
+      const assetLng = Number(asset.location?.lng);
+      if (!Number.isFinite(assetLat) || !Number.isFinite(assetLng)) continue;
+
+      const distanceInKm = geofire.distanceBetween(center, [assetLat, assetLng]);
+      if (distanceInKm > NEARBY_RADIUS_KM) continue;
+
+      assetsById.set(asset.id, {
+        ...asset,
+        distanceFromCenterInKm: distanceInKm,
+      });
+    }
+  }
+
+  return [...assetsById.values()].sort(
+    (a, b) => (a.distanceFromCenterInKm || 0) - (b.distanceFromCenterInKm || 0),
+  );
 }
 
 function mergeFeeds(feeds) {
