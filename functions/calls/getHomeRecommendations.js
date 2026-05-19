@@ -13,7 +13,27 @@ const {
 const NEARBY_RADIUS_KM = 25;
 const FALLBACK_THRESHOLD = 12;
 
+exports.getHomeRecommended = async (request) => {
+  return getHomeRail(request, "recommended");
+};
+
+exports.getHomePopular = async (request) => {
+  return getHomeRail(request, "popular");
+};
+
 exports.getHomeRecommendations = async (request) => {
+  const recommended = await getHomeRail(request, "recommended");
+  const popular = await getHomeRail(request, "popular");
+
+  return {
+    recommended: recommended.items,
+    popular: popular.items,
+    scopeUsed: recommended.scopeUsed !== "none" ? recommended.scopeUsed : popular.scopeUsed,
+    generatedAt: admin.firestore.Timestamp.now().toMillis(),
+  };
+};
+
+async function getHomeRail(request, type) {
   const auth = request.auth;
   const {
     location = {},
@@ -28,8 +48,7 @@ exports.getHomeRecommendations = async (request) => {
   const normalizedLocation = normalizeLocationInput(location);
   if (!normalizedLocation.countryKey && !hasCoordinates(normalizedLocation)) {
     return {
-      recommended: [],
-      popular: [],
+      items: [],
       scopeUsed: "none",
       generatedAt: null,
     };
@@ -41,86 +60,60 @@ exports.getHomeRecommendations = async (request) => {
     ? categoryHints.filter((item) => typeof item === "string" && item.trim()).slice(0, 5)
     : [];
 
-  const nearbyFeeds = hasCoordinates(normalizedLocation)
-    ? await readNearbyFeeds(db, {
+  const nearbyFeed = hasCoordinates(normalizedLocation)
+    ? await readNearbyFeed(db, {
+        type,
         location: normalizedLocation,
-        categoryHints: normalizedHints,
+        categoryHints: type === "recommended" ? normalizedHints : [],
       })
-    : { recommended: [], popular: [] };
+    : [];
 
-  const localityFeeds =
+  const localityFeed =
     normalizedLocation.countryKey && normalizedLocation.localityKey
-      ? await readScopedFeeds(db, {
+      ? await readOrRefreshFeed(db, {
+          type,
           location: normalizedLocation,
-          categoryHints: normalizedHints,
+          categoryHints: type === "recommended" ? normalizedHints : [],
           scope: "locality",
         })
       : null;
 
-  const countryFeeds = normalizedLocation.countryKey
-    ? await readScopedFeeds(db, {
+  const countryFeed = normalizedLocation.countryKey
+    ? await readOrRefreshFeed(db, {
+        type,
         location: normalizedLocation,
-        categoryHints: normalizedHints,
+        categoryHints: type === "recommended" ? normalizedHints : [],
         scope: "country",
       })
-    : { recommended: [], popular: [] };
+    : [];
 
-  const recommendedFeeds = [nearbyFeeds.recommended];
-  const popularFeeds = [nearbyFeeds.popular];
-  if (nearbyFeeds.recommended.length < FALLBACK_THRESHOLD) {
-    recommendedFeeds.push(localityFeeds?.recommended, countryFeeds.recommended);
-  }
-  if (nearbyFeeds.popular.length < FALLBACK_THRESHOLD) {
-    popularFeeds.push(localityFeeds?.popular, countryFeeds.popular);
+  const feeds = [nearbyFeed];
+  if (nearbyFeed.length < FALLBACK_THRESHOLD) {
+    feeds.push(localityFeed, countryFeed);
   }
 
-  const recommended = mergeFeeds(recommendedFeeds).slice(0, limit);
-  const popular = mergeFeeds(popularFeeds).slice(0, limit);
+  const items = mergeFeeds(feeds).slice(0, limit);
 
   return {
-    recommended,
-    popular,
-    scopeUsed: nearbyFeeds.recommended.length || nearbyFeeds.popular.length
+    items,
+    scopeUsed: nearbyFeed.length
       ? "nearby"
-      : localityFeeds && (localityFeeds.recommended.length || localityFeeds.popular.length)
+      : localityFeed && localityFeed.length
         ? "locality"
         : normalizedLocation.countryKey
           ? "country"
           : "none",
     generatedAt: admin.firestore.Timestamp.now().toMillis(),
   };
-};
+}
 
 function hasCoordinates(location) {
   return Number.isFinite(location.lat) && Number.isFinite(location.lng);
 }
 
-async function readNearbyFeeds(db, { location, categoryHints }) {
+async function readNearbyFeed(db, { type, location, categoryHints }) {
   const assets = await buildNearbyAssets(db, { location });
-  return {
-    recommended: rankAndDedupe(assets, { categoryHints, type: "recommended" }),
-    popular: rankAndDedupe(assets, { categoryHints: [], type: "popular" }),
-  };
-}
-
-async function readScopedFeeds(db, { location, categoryHints, scope }) {
-  const recommendedFeed = await readOrRefreshFeed(db, {
-    type: "recommended",
-    location,
-    categoryHints,
-    scope,
-  });
-  const popularFeed = await readOrRefreshFeed(db, {
-    type: "popular",
-    location,
-    categoryHints: [],
-    scope,
-  });
-
-  return {
-    recommended: recommendedFeed,
-    popular: popularFeed,
-  };
+  return rankAndDedupe(assets, { categoryHints, type });
 }
 
 async function readOrRefreshFeed(db, { type, location, categoryHints, scope }) {
