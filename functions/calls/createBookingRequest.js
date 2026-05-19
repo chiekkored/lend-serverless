@@ -199,6 +199,7 @@ function toSimpleAsset(asset, assetId) {
     title: asset.title || null,
     images: asset.images || [],
     category: asset.category || null,
+    rates: asset.rates || null,
     createdAt: asset.createdAt || null,
     status: asset.status || null,
     location: asset.location || null,
