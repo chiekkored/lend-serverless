@@ -101,8 +101,8 @@ exports.bootstrapAdminUser = onRequest({ cors: true }, async (req, res) => {
         createdAt:
           adminUserSnap.exists && adminUserSnap.data()?.createdAt
             ? adminUserSnap.data().createdAt
-            : admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            : admin.firestore.FieldValue?.serverTimestamp() || new Date(),
+        updatedAt: admin.firestore.FieldValue?.serverTimestamp() || new Date(),
         adminType: normalizedAdminType,
         status: "Active",
         createdBy: adminUserSnap.data()?.createdBy ?? "bootstrap",

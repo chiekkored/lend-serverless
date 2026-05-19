@@ -1,3 +1,4 @@
+const admin = require("firebase-admin");
 const geofire = require("geofire-common");
 
 const FEED_TTL_MS = 60 * 60 * 1000;
@@ -114,7 +115,7 @@ async function readOrRefreshCandidateFeed(db, { location, scope }) {
       countryKey: location.countryKey,
       localityKey: scope === "locality" ? location.localityKey : null,
       items,
-      generatedAt: adminFieldValue().serverTimestamp(),
+      generatedAt: admin.firestore.FieldValue?.serverTimestamp() || new Date(),
     },
     { merge: true },
   );
@@ -242,16 +243,10 @@ async function buildNearbyAssets(db, { location }) {
   return [...assetsById.values()].sort((a, b) => (a.distanceFromCenterInKm || 0) - (b.distanceFromCenterInKm || 0));
 }
 
-function adminFieldValue() {
-  const admin = require("firebase-admin");
-  return admin.firestore.FieldValue;
-}
-
 module.exports = {
   FEED_LIMIT,
   FALLBACK_THRESHOLD,
   NEARBY_RADIUS_KM,
-  adminFieldValue,
   buildNearbyAssets,
   buildScopedAssetFeed,
   candidateFeedId,

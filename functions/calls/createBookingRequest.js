@@ -1,4 +1,5 @@
 const admin = require("firebase-admin");
+const { FieldValue } = require("firebase-admin/firestore");
 const { throwAndLogHttpsError } = require("../utils/error.util");
 const {
   ACTIVE_BOOKING_STATUSES,
@@ -155,10 +156,10 @@ exports.createBookingRequest = async (request) => {
     transaction.set(
       assetRef,
       {
-        "engagement.bookingRequestCount": admin.firestore.FieldValue.increment(1),
-        "engagement.lastEngagedAt": admin.firestore.FieldValue.serverTimestamp(),
-        popularityScore: admin.firestore.FieldValue.increment(5),
-        recommendationScore: admin.firestore.FieldValue.increment(2),
+        "engagement.bookingRequestCount": admin.firestore.FieldValue?.increment(1) || FieldValue.increment(1),
+        "engagement.lastEngagedAt": admin.firestore.FieldValue?.serverTimestamp() || new Date(),
+        popularityScore: admin.firestore.FieldValue?.increment(5) || FieldValue.increment(5),
+        recommendationScore: admin.firestore.FieldValue?.increment(2) || FieldValue.increment(2),
       },
       { merge: true },
     );

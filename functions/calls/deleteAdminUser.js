@@ -57,17 +57,16 @@ exports.deleteAdminUser = onRequest({ cors: true }, async (req, res) => {
 
     const authUser = await admin.auth().getUser(normalizedUid);
     const existingClaims = authUser.customClaims ?? {};
-    const { admin: _admin, adminType: _adminType, ...remainingClaims } =
-      existingClaims;
+    const { admin: _admin, adminType: _adminType, ...remainingClaims } = existingClaims;
 
     await admin.auth().updateUser(normalizedUid, { disabled: true });
     await admin.auth().setCustomUserClaims(normalizedUid, remainingClaims);
     await adminUserRef.set(
       {
         status: "Deleted",
-        deletedAt: admin.firestore.FieldValue.serverTimestamp(),
+        deletedAt: admin.firestore.FieldValue?.serverTimestamp() || new Date(),
         deletedBy: caller.uid,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue?.serverTimestamp() || new Date(),
         updatedBy: caller.uid,
       },
       { merge: true },

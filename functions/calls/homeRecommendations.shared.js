@@ -77,7 +77,7 @@ async function getPersonalizedRecommendedRail({ db, uid, normalizedLocation, lim
     return {
       items: [],
       scopeUsed: "none",
-      generatedAt: admin.firestore.Timestamp.now().toMillis(),
+      generatedAt: admin.firestore?.Timestamp?.now().toMillis() || new Date().getTime(),
     };
   }
 
@@ -101,7 +101,7 @@ async function getPersonalizedRecommendedRail({ db, uid, normalizedLocation, lim
   return {
     items,
     scopeUsed: candidates.scopeUsed,
-    generatedAt: admin.firestore.Timestamp.now().toMillis(),
+    generatedAt: admin.firestore?.Timestamp?.now().toMillis() || new Date().getTime(),
   };
 }
 
@@ -121,7 +121,7 @@ async function getPopularRail({ db, uid, normalizedLocation, limit }) {
   return {
     items: rail.items.slice(0, limit),
     scopeUsed: rail.scopeUsed,
-    generatedAt: admin.firestore.Timestamp.now().toMillis(),
+    generatedAt: admin.firestore?.Timestamp?.now().toMillis() || new Date().getTime(),
   };
 }
 

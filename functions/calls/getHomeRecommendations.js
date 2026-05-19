@@ -13,6 +13,6 @@ exports.getHomeRecommendations = async (request) => {
     recommended: recommended.items,
     popular: popular.items,
     scopeUsed: recommended.scopeUsed !== "none" ? recommended.scopeUsed : popular.scopeUsed,
-    generatedAt: admin.firestore.Timestamp.now().toMillis(),
+    generatedAt: admin.firestore?.Timestamp?.now().toMillis() || new Date().getTime(),
   };
 };

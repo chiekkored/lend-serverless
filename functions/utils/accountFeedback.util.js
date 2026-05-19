@@ -64,16 +64,14 @@ async function saveAccountFeedback(feedback, expectedAction, db = admin.firestor
   await feedbackRef.set({
     id: feedbackRef.id,
     ...payload,
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdAt: admin.firestore.FieldValue?.serverTimestamp() || new Date(),
   });
 
   return feedbackRef.id;
 }
 
 function redactPersonalInfo(value) {
-  return value
-    .replace(emailPattern, "[redacted]")
-    .replace(phonePattern, "[redacted]");
+  return value.replace(emailPattern, "[redacted]").replace(phonePattern, "[redacted]");
 }
 
 function asTrimmedString(value) {

@@ -26,10 +26,8 @@ exports.updateAdminUser = onRequest({ cors: true }, async (req, res) => {
 
   const { uid, displayName, adminType, password } = req.body ?? {};
   const normalizedUid = typeof uid === "string" ? uid.trim() : "";
-  const normalizedDisplayName =
-    typeof displayName === "string" ? displayName.trim() : "";
-  const normalizedAdminType =
-    typeof adminType === "string" ? adminType.trim().toLowerCase() : "";
+  const normalizedDisplayName = typeof displayName === "string" ? displayName.trim() : "";
+  const normalizedAdminType = typeof adminType === "string" ? adminType.trim().toLowerCase() : "";
 
   if (!normalizedUid) {
     jsonResponse(res, 400, { error: "Admin user id is required." });
@@ -93,7 +91,7 @@ exports.updateAdminUser = onRequest({ cors: true }, async (req, res) => {
         firstName,
         lastName,
         status: "Active",
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue?.serverTimestamp() || new Date(),
         updatedBy: caller.uid,
       },
       { merge: true },

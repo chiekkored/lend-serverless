@@ -1,12 +1,8 @@
 const admin = require("firebase-admin");
 const { throwAndLogHttpsError } = require("../utils/error.util");
-const {
-  BOOKING_STATUS,
-  CHAT_STATUS,
-  assertReviewableBooking,
-  getBookingRefs,
-} = require("../utils/booking.util");
+const { BOOKING_STATUS, CHAT_STATUS, assertReviewableBooking, getBookingRefs } = require("../utils/booking.util");
 const { updateRecommendationProfile } = require("../utils/recommendations.util");
+const { FieldValue } = require("firebase-admin/firestore");
 
 exports.submitBookingReview = async (request) => {
   const auth = request.auth;
@@ -93,11 +89,11 @@ exports.submitBookingReview = async (request) => {
     transaction.set(
       assetRef,
       {
-        "engagement.reviewCount": admin.firestore.FieldValue.increment(1),
+        "engagement.reviewCount": admin.firestore?.FieldValue?.increment(1) || FieldValue.increment(1),
         "engagement.lastEngagedAt": now,
         qualityScore: newAverage * Math.min(newCount, 10),
-        popularityScore: admin.firestore.FieldValue.increment(3),
-        recommendationScore: admin.firestore.FieldValue.increment(2),
+        popularityScore: admin.firestore?.FieldValue?.increment(3) || FieldValue.increment(3),
+        recommendationScore: admin.firestore?.FieldValue?.increment(2) || FieldValue.increment(2),
       },
       { merge: true },
     );

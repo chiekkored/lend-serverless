@@ -1,4 +1,6 @@
-const { adminFieldValue, normalizeLocationPart } = require("./feedAlgorithm.util");
+const { normalizeLocationPart } = require("./feedAlgorithm.util");
+const admin = require("firebase-admin");
+const { FieldValue } = require("firebase-admin/firestore");
 
 function normalizeCategoryKey(category) {
   return normalizeLocationPart(category || "");
@@ -15,16 +17,16 @@ function updateRecommendationProfile(transaction, db, { uid, asset, weight, sign
   if (!categoryKey) return;
 
   const profileRef = recommendationProfileRef(db, uid);
-  const increment = adminFieldValue().increment(weight);
-  const now = adminFieldValue().serverTimestamp();
+  const increment = admin.firestore?.FieldValue?.increment(weight) || FieldValue.increment(weight);
+  const now = admin.firestore.FieldValue?.serverTimestamp() || new Date();
 
   transaction.set(
     profileRef,
     {
       [`categoryWeights.${categoryKey}`]: increment,
       [`categoryLabels.${categoryKey}`]: asset.category,
-      [`signals.${signalType}`]: adminFieldValue().increment(1),
-      recentAssetIds: adminFieldValue().arrayUnion(asset.id),
+      [`signals.${signalType}`]: admin.firestore.FieldValue?.increment(1) || FieldValue.increment(1),
+      recentAssetIds: admin.firestore.FieldValue?.arrayUnion(asset.id) || FieldValue.arrayUnion(asset.id),
       lastUpdated: now,
     },
     { merge: true },

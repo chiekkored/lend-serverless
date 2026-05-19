@@ -1,7 +1,8 @@
+const admin = require("firebase-admin");
+
 const {
   FEED_LIMIT,
   FALLBACK_THRESHOLD,
-  adminFieldValue,
   buildNearbyAssets,
   buildScopedAssetFeed,
   feedId,
@@ -128,7 +129,7 @@ async function readOrRefreshRankedFeed(db, { type, location, categoryHints, curr
       localityKey: scope === "locality" ? location.localityKey : null,
       categoryHints,
       items,
-      generatedAt: adminFieldValue().serverTimestamp(),
+      generatedAt: admin.firestore.FieldValue?.serverTimestamp() || new Date(),
     },
     { merge: true },
   );
