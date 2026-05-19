@@ -16,11 +16,9 @@ const { updateAdminUser } = require("./calls/updateAdminUser.js");
 const { disableUser } = require("./calls/disableUser.js");
 const { diditVerificationWebhook } = require("./calls/diditVerificationWebhook.js");
 const { recordRecommendationEvent } = require("./calls/recordRecommendationEvent.js");
-const {
-  getHomePopular,
-  getHomeRecommended,
-  getHomeRecommendations,
-} = require("./calls/getHomeRecommendations.js");
+const { getHomeRecommendations } = require("./calls/getHomeRecommendations.js");
+const { getHomeRecommended } = require("./calls/getHomeRecommended.js");
+const { getHomePopular } = require("./calls/getHomePopular.js");
 const { syncUserMetadata } = require("./scheduled/syncUserMetadata.js");
 
 // Initialize Firebase Admin SDK only once

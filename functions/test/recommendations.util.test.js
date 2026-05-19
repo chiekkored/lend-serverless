@@ -4,10 +4,14 @@ const test = require("node:test");
 const {
   candidateFeedId,
   feedId,
+  hasCoordinates,
+  mergeFeeds,
+  normalizeCategoryHints,
   normalizeLocationInput,
-  rankPersonalizedRecommendations,
-  rankAndDedupe,
-} = require("../utils/recommendations.util");
+} = require("../utils/feed_algorithm.util");
+const { rankPersonalizedRecommendations } = require("../utils/recommended_algorithm.util");
+const { rankAndDedupe } = require("../utils/popular_algorithm.util");
+const recommendationFacade = require("../utils/recommendations.util");
 
 test("normalizeLocationInput prefers locality and keeps coordinates", () => {
   const location = normalizeLocationInput({
@@ -35,6 +39,19 @@ test("normalizeLocationInput falls back to legacy cityState", () => {
 
   assert.equal(location.locality, "Metro Manila");
   assert.equal(location.localityKey, "metro-manila");
+});
+
+test("hasCoordinates requires finite latitude and longitude", () => {
+  assert.equal(hasCoordinates({ lat: 14.5547, lng: 121.0244 }), true);
+  assert.equal(hasCoordinates({ lat: 14.5547, lng: null }), false);
+  assert.equal(hasCoordinates({ lat: Number.NaN, lng: 121.0244 }), false);
+});
+
+test("normalizeCategoryHints keeps first five non-empty strings", () => {
+  assert.deepEqual(
+    normalizeCategoryHints([" Cameras ", "", "Tools", null, "Audio", "Sports", "Books", "Extra"]),
+    [" Cameras ", "Tools", "Audio", "Sports", "Books"],
+  );
 });
 
 test("feedId uses locality scope ids", () => {
@@ -125,6 +142,20 @@ test("rankPersonalizedRecommendations excludes current user's own assets", () =>
   );
 });
 
+test("mergeFeeds keeps source order and removes duplicate asset ids", () => {
+  const merged = mergeFeeds([
+    [asset({ id: "nearby" }), asset({ id: "shared", title: "nearby copy" })],
+    null,
+    [asset({ id: "shared", title: "country copy" }), asset({ id: "country" })],
+  ]);
+
+  assert.deepEqual(
+    merged.map((item) => item.id),
+    ["nearby", "shared", "country"],
+  );
+  assert.equal(merged.find((item) => item.id === "shared").title, "nearby copy");
+});
+
 test("rankAndDedupe excludes current user's own assets from popular results", () => {
   const assets = [
     asset({ id: "mine", ownerId: "user-1", popularityScore: 100 }),
@@ -140,6 +171,12 @@ test("rankAndDedupe excludes current user's own assets from popular results", ()
     ranked.map((item) => item.id),
     ["other"],
   );
+});
+
+test("recommendations.util keeps backward-compatible algorithm exports", () => {
+  assert.equal(recommendationFacade.normalizeLocationInput, normalizeLocationInput);
+  assert.equal(recommendationFacade.rankPersonalizedRecommendations, rankPersonalizedRecommendations);
+  assert.equal(recommendationFacade.rankAndDedupe, rankAndDedupe);
 });
 
 function asset(overrides = {}) {
