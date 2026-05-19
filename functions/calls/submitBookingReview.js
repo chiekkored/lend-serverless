@@ -89,8 +89,10 @@ exports.submitBookingReview = async (request) => {
     transaction.set(
       assetRef,
       {
-        "engagement.reviewCount": admin.firestore?.FieldValue?.increment(1) || FieldValue.increment(1),
-        "engagement.lastEngagedAt": now,
+        engagement: {
+          reviewCount: admin.firestore?.FieldValue?.increment(1) || FieldValue.increment(1),
+          lastEngagedAt: now,
+        },
         qualityScore: newAverage * Math.min(newCount, 10),
         popularityScore: admin.firestore?.FieldValue?.increment(3) || FieldValue.increment(3),
         recommendationScore: admin.firestore?.FieldValue?.increment(2) || FieldValue.increment(2),

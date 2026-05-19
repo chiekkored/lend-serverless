@@ -23,9 +23,15 @@ function updateRecommendationProfile(transaction, db, { uid, asset, weight, sign
   transaction.set(
     profileRef,
     {
-      [`categoryWeights.${categoryKey}`]: increment,
-      [`categoryLabels.${categoryKey}`]: asset.category,
-      [`signals.${signalType}`]: admin.firestore.FieldValue?.increment(1) || FieldValue.increment(1),
+      categoryWeights: {
+        [categoryKey]: increment,
+      },
+      categoryLabels: {
+        [categoryKey]: asset.category,
+      },
+      signals: {
+        [signalType]: admin.firestore.FieldValue?.increment(1) || FieldValue.increment(1),
+      },
       recentAssetIds: admin.firestore.FieldValue?.arrayUnion(asset.id) || FieldValue.arrayUnion(asset.id),
       lastUpdated: now,
     },
