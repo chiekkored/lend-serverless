@@ -6,6 +6,7 @@ const {
   assertReviewableBooking,
   getBookingRefs,
 } = require("../utils/booking.util");
+const { updateRecommendationProfile } = require("../utils/recommendations.util");
 
 exports.submitBookingReview = async (request) => {
   const auth = request.auth;
@@ -129,6 +130,16 @@ exports.submitBookingReview = async (request) => {
       },
       { merge: true },
     );
+    updateRecommendationProfile(transaction, db, {
+      uid: renterId,
+      asset: {
+        id: assetId,
+        ownerId: assetData.ownerId || null,
+        category: assetData.category || booking?.asset?.category || null,
+      },
+      weight: 4,
+      signalType: "review",
+    });
   });
 
   const ratingMessagesSnap = await db

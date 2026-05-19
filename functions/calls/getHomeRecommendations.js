@@ -3,10 +3,13 @@ const geofire = require("geofire-common");
 const { throwAndLogHttpsError } = require("../utils/error.util");
 const {
   FEED_LIMIT,
+  candidateFeedId,
   feedId,
   isFeedFresh,
   normalizeLocationInput,
+  rankPersonalizedRecommendations,
   rankAndDedupe,
+  recommendationProfileRef,
   toAssetPreview,
 } = require("../utils/recommendations.util");
 
@@ -56,6 +59,16 @@ async function getHomeRail(request, type) {
 
   const db = admin.firestore();
   const limit = Math.max(1, Math.min(Number(limitPerRail) || 12, 12));
+
+  if (type === "recommended") {
+    return getPersonalizedRecommendedRail({
+      db,
+      uid: auth.uid,
+      normalizedLocation,
+      limit,
+    });
+  }
+
   const normalizedHints = Array.isArray(categoryHints)
     ? categoryHints.filter((item) => typeof item === "string" && item.trim()).slice(0, 5)
     : [];
@@ -65,6 +78,7 @@ async function getHomeRail(request, type) {
         type,
         location: normalizedLocation,
         categoryHints: type === "recommended" ? normalizedHints : [],
+        currentUserId: auth.uid,
       })
     : [];
 
@@ -74,6 +88,7 @@ async function getHomeRail(request, type) {
           type,
           location: normalizedLocation,
           categoryHints: type === "recommended" ? normalizedHints : [],
+          currentUserId: auth.uid,
           scope: "locality",
         })
       : null;
@@ -83,6 +98,7 @@ async function getHomeRail(request, type) {
         type,
         location: normalizedLocation,
         categoryHints: type === "recommended" ? normalizedHints : [],
+        currentUserId: auth.uid,
         scope: "country",
       })
     : [];
@@ -107,16 +123,69 @@ async function getHomeRail(request, type) {
   };
 }
 
+async function getPersonalizedRecommendedRail({ db, uid, normalizedLocation, limit }) {
+  const profileSnap = await recommendationProfileRef(db, uid).get();
+  if (!profileSnap.exists) {
+    return {
+      items: [],
+      scopeUsed: "none",
+      generatedAt: admin.firestore.Timestamp.now().toMillis(),
+    };
+  }
+
+  const nearbyCandidates = hasCoordinates(normalizedLocation)
+    ? await buildNearbyAssets(db, { location: normalizedLocation })
+    : [];
+
+  const localityCandidates =
+    normalizedLocation.countryKey && normalizedLocation.localityKey
+      ? await readOrRefreshCandidateFeed(db, {
+          location: normalizedLocation,
+          scope: "locality",
+        })
+      : null;
+
+  const countryCandidates = normalizedLocation.countryKey
+    ? await readOrRefreshCandidateFeed(db, {
+        location: normalizedLocation,
+        scope: "country",
+      })
+    : [];
+
+  const feeds = [nearbyCandidates];
+  if (nearbyCandidates.length < FALLBACK_THRESHOLD) {
+    feeds.push(localityCandidates, countryCandidates);
+  }
+
+  const candidates = mergeFeeds(feeds);
+  const items = rankPersonalizedRecommendations(candidates, profileSnap.data(), {
+    currentUserId: uid,
+    limit,
+  });
+
+  return {
+    items,
+    scopeUsed: nearbyCandidates.length
+      ? "nearby"
+      : localityCandidates && localityCandidates.length
+        ? "locality"
+        : normalizedLocation.countryKey
+          ? "country"
+          : "none",
+    generatedAt: admin.firestore.Timestamp.now().toMillis(),
+  };
+}
+
 function hasCoordinates(location) {
   return Number.isFinite(location.lat) && Number.isFinite(location.lng);
 }
 
-async function readNearbyFeed(db, { type, location, categoryHints }) {
+async function readNearbyFeed(db, { type, location, categoryHints, currentUserId }) {
   const assets = await buildNearbyAssets(db, { location });
-  return rankAndDedupe(assets, { categoryHints, type });
+  return rankAndDedupe(assets, { categoryHints, currentUserId, type });
 }
 
-async function readOrRefreshFeed(db, { type, location, categoryHints, scope }) {
+async function readOrRefreshFeed(db, { type, location, categoryHints, currentUserId, scope }) {
   const id = feedId({
     type,
     scope,
@@ -128,7 +197,7 @@ async function readOrRefreshFeed(db, { type, location, categoryHints, scope }) {
 
   if (feedSnap.exists && isFeedFresh(feedSnap.data())) {
     const items = Array.isArray(feedSnap.data().items) ? feedSnap.data().items : [];
-    return items;
+    return rankAndDedupe(items, { categoryHints, currentUserId, type });
   }
 
   const items = await buildFeed(db, { type, location, categoryHints, scope });
@@ -140,6 +209,33 @@ async function readOrRefreshFeed(db, { type, location, categoryHints, scope }) {
       countryKey: location.countryKey,
       localityKey: scope === "locality" ? location.localityKey : null,
       categoryHints,
+      items,
+      generatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+
+  return rankAndDedupe(items, { categoryHints, currentUserId, type });
+}
+
+async function readOrRefreshCandidateFeed(db, { location, scope }) {
+  const id = candidateFeedId({ scope, location });
+  const feedRef = db.collection("recommendationFeeds").doc(id);
+  const feedSnap = await feedRef.get();
+
+  if (feedSnap.exists && isFeedFresh(feedSnap.data())) {
+    const items = Array.isArray(feedSnap.data().items) ? feedSnap.data().items : [];
+    return items;
+  }
+
+  const items = await buildCandidateFeed(db, { location, scope });
+  await feedRef.set(
+    {
+      id,
+      type: "candidate",
+      scope,
+      countryKey: location.countryKey,
+      localityKey: scope === "locality" ? location.localityKey : null,
       items,
       generatedAt: admin.firestore.FieldValue.serverTimestamp(),
     },
@@ -161,8 +257,24 @@ async function buildFeed(db, { type, location, categoryHints, scope }) {
   }
 
   const snapshot = await query.orderBy("createdAt", "desc").limit(FEED_LIMIT).get();
-  const assets = snapshot.docs.map(toAssetPreview);
-  return rankAndDedupe(assets, { categoryHints, type });
+  return snapshot.docs.map(toAssetPreview);
+}
+
+async function buildCandidateFeed(db, { location, scope }) {
+  let query = db
+    .collection("assets")
+    .where("isDeleted", "==", false)
+    .where("status", "==", "Available")
+    .where("location.country", "==", location.country);
+
+  if (scope === "locality" && location.locality) {
+    query = query.where("location.locality", "==", location.locality);
+  }
+
+  const snapshot = await query.orderBy("createdAt", "desc").limit(FEED_LIMIT).get();
+  return snapshot.docs
+    .map(toAssetPreview)
+    .filter((asset) => asset.id && !asset.isDeleted && asset.status === "Available" && asset.suppressFromRecommendations !== true);
 }
 
 async function buildNearbyAssets(db, { location }) {

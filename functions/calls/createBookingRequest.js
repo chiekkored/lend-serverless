@@ -7,6 +7,7 @@ const {
   normalizeBookingRange,
 } = require("../utils/booking.util");
 const { pendingBookingCountIncrementValue } = require("../utils/pendingBookingCount.util");
+const { updateRecommendationProfile } = require("../utils/recommendations.util");
 
 exports.createBookingRequest = async (request) => {
   const auth = request.auth;
@@ -161,6 +162,12 @@ exports.createBookingRequest = async (request) => {
       },
       { merge: true },
     );
+    updateRecommendationProfile(transaction, db, {
+      uid: renterId,
+      asset: { ...assetSnapshot, ownerId: asset.ownerId },
+      weight: 5,
+      signalType: "bookingRequest",
+    });
   });
 
   return {

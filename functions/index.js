@@ -15,6 +15,7 @@ const { deleteUserAccount } = require("./calls/deleteUser.js");
 const { updateAdminUser } = require("./calls/updateAdminUser.js");
 const { disableUser } = require("./calls/disableUser.js");
 const { diditVerificationWebhook } = require("./calls/diditVerificationWebhook.js");
+const { recordRecommendationEvent } = require("./calls/recordRecommendationEvent.js");
 const {
   getHomePopular,
   getHomeRecommended,
@@ -44,6 +45,7 @@ exports.disableUser = functions.https.onCall(disableUser);
 exports.getHomeRecommendations = functions.https.onCall(getHomeRecommendations);
 exports.getHomeRecommended = functions.https.onCall(getHomeRecommended);
 exports.getHomePopular = functions.https.onCall(getHomePopular);
+exports.recordRecommendationEvent = functions.https.onCall(recordRecommendationEvent);
 exports.diditVerificationWebhook = functions.https.onRequest(diditVerificationWebhook);
 if (process.env.FUNCTIONS_EMULATOR === "true") {
   const { bootstrapAdminUser } = require("./calls/bootstrapAdminUser.js");
