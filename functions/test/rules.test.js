@@ -104,7 +104,9 @@ test("users can create one pending verification submission atomically", async ()
   });
 
   const batch = writeBatch(ownerDb);
-  batch.set(doc(ownerDb, "verificationSubmissions/submission-1"), verificationSubmissionData("submission-1", "owner"));
+  batch.set(doc(ownerDb, "verificationSubmissions/submission-1"), verificationSubmissionData("submission-1", "owner", {
+    requestType: "upgrade_verification",
+  }));
   batch.update(doc(ownerDb, "users/owner"), {
     phone: "09171234567",
     fullVerification: verificationSummaryData("submission-1"),
@@ -116,6 +118,47 @@ test("users can create one pending verification submission atomically", async ()
     doc(otherDb, "verificationSubmissions/submission-other"),
     verificationSubmissionData("submission-other", "owner"),
   ));
+});
+
+test("account information submissions only update pending verification metadata", async () => {
+  const ownerDb = testEnv.authenticatedContext("owner").firestore();
+
+  const blockedBatch = writeBatch(ownerDb);
+  blockedBatch.set(
+    doc(ownerDb, "verificationSubmissions/account-update-blocked"),
+    verificationSubmissionData("account-update-blocked", "owner", {
+      requestType: "account_information_update",
+      updatedFields: ["fullName"],
+    }),
+  );
+  blockedBatch.update(doc(ownerDb, "users/owner"), {
+    firstName: "Changed Before Review",
+    fullVerification: verificationSummaryData("account-update-blocked"),
+    userMetadataVersion: increment(1),
+    verified: "Basic",
+  });
+
+  await assertFails(blockedBatch.commit());
+
+  const batch = writeBatch(ownerDb);
+  batch.set(
+    doc(ownerDb, "verificationSubmissions/account-update-1"),
+    verificationSubmissionData("account-update-1", "owner", {
+      firstName: "Changed After Review",
+      requestType: "account_information_update",
+      updatedFields: ["fullName"],
+    }),
+  );
+  batch.update(doc(ownerDb, "users/owner"), {
+    fullVerification: verificationSummaryData("account-update-1"),
+    userMetadataVersion: increment(1),
+    verified: "Basic",
+  });
+
+  await assertSucceeds(batch.commit());
+  await assertFails(updateDoc(doc(ownerDb, "users/owner"), {
+    firstName: "Changed While Pending",
+  }));
 });
 
 test("users cannot create another verification submission while pending", async () => {
@@ -414,7 +457,7 @@ function verificationSummaryData(submissionId) {
   };
 }
 
-function verificationSubmissionData(id, userId) {
+function verificationSubmissionData(id, userId, overrides = {}) {
   return {
     id,
     userId,
@@ -446,6 +489,7 @@ function verificationSubmissionData(id, userId) {
     status: "Pending",
     submittedAt: new Date("2026-04-02T00:00:00.000Z"),
     reviewedAt: null,
+    ...overrides,
   };
 }
 

@@ -46,14 +46,55 @@ service cloud.firestore {
       return isSelf(uid) &&
         isVerificationLevel(request.resource.data.verified) &&
         isValidFullVerificationSelfUpdate() &&
+        isValidPendingVerificationUserMetadataUpdate() &&
+        isValidPendingVerificationProfileFieldUpdate() &&
         (
           request.resource.data.verified == resource.data.verified ||
           (
             resource.data.verified == 'None' &&
             request.resource.data.verified == 'Basic' &&
             request.auth.token.email_verified == true
+          ) ||
+          (
+            resource.data.verified == 'Full' &&
+            request.resource.data.verified == 'Basic' &&
+            request.resource.data.fullVerification.status == 'Pending'
           )
         );
+    }
+
+    function isValidPendingVerificationUserMetadataUpdate() {
+      return !(
+          resource.data.verified == 'Full' &&
+          request.resource.data.verified == 'Basic' &&
+          request.resource.data.fullVerification.status == 'Pending'
+        ) ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'verified',
+          'fullVerification',
+          'userMetadataVersion'
+        ]);
+    }
+
+    function isValidPendingVerificationProfileFieldUpdate() {
+      return !(
+          isPendingFullVerification(resource.data.fullVerification) ||
+          isPendingFullVerification(request.resource.data.fullVerification)
+        ) ||
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'firstName',
+          'lastName',
+          'dateOfBirth',
+          'email',
+          'phone',
+          'location',
+          'photoUrl'
+        ]);
+    }
+
+    function isPendingFullVerification(fullVerification) {
+      return fullVerification is map &&
+        fullVerification.status == 'Pending';
     }
 
     function isValidFullVerificationSelfUpdate() {
@@ -138,7 +179,9 @@ service cloud.firestore {
           'diditCompletedAt',
           'status',
           'submittedAt',
-          'reviewedAt'
+          'reviewedAt',
+          'requestType',
+          'updatedFields'
         ]) &&
         request.resource.data.id == submissionId &&
         request.resource.data.userId == request.auth.uid &&
@@ -169,8 +212,44 @@ service cloud.firestore {
         request.resource.data.status == 'Pending' &&
         request.resource.data.submittedAt is timestamp &&
         request.resource.data.reviewedAt == null &&
+        (!('requestType' in request.resource.data) ||
+          request.resource.data.requestType in ['upgrade_verification', 'account_information_update']) &&
+        (!('updatedFields' in request.resource.data) ||
+          request.resource.data.updatedFields is list) &&
         getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.fullVerification.status == 'Pending' &&
         getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.fullVerification.activeSubmissionId == submissionId;
+    }
+
+    function isValidVerificationSubmissionSelfUpdate(submissionId) {
+      return isSignedIn() &&
+        resource.data.userId == request.auth.uid &&
+        resource.data.status == 'Pending' &&
+        request.resource.data.id == submissionId &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == 'Pending' &&
+        request.resource.data.requestType == 'account_information_update' &&
+        request.resource.data.updatedFields is list &&
+        request.resource.data.submittedAt is timestamp &&
+        request.resource.data.reviewedAt == null &&
+        getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.fullVerification.status == 'Pending' &&
+        getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.fullVerification.activeSubmissionId == submissionId;
+    }
+
+    function isValidVerificationHoldAssetUpdate(submissionId) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'verificationHoldPreviousStatus',
+          'verificationHoldSubmissionId',
+          'verificationHoldStartedAt'
+        ]) &&
+        resource.data.status == 'Available' &&
+        request.resource.data.status == 'Hidden' &&
+        request.resource.data.verificationHoldPreviousStatus == 'Available' &&
+        request.resource.data.verificationHoldSubmissionId == submissionId &&
+        request.resource.data.verificationHoldStartedAt is timestamp &&
+        existsAfter(/databases/$(database)/documents/verificationSubmissions/$(submissionId)) &&
+        getAfter(/databases/$(database)/documents/verificationSubmissions/$(submissionId)).data.userId == request.auth.uid &&
+        getAfter(/databases/$(database)/documents/verificationSubmissions/$(submissionId)).data.status == 'Pending';
     }
 
     function isValidVerificationSubmissionAdminUpdate() {
@@ -272,7 +351,13 @@ service cloud.firestore {
 
       match /assets/{assetId} {
         allow read: if isSelf(uid) || isAdmin();
-        allow write: if isAdmin() || (isSelf(uid) && currentUserCanList());
+        allow write: if isAdmin() ||
+          (isSelf(uid) && currentUserCanList()) ||
+          (
+            isSelf(uid) &&
+            request.resource.data.verificationHoldSubmissionId is string &&
+            isValidVerificationHoldAssetUpdate(request.resource.data.verificationHoldSubmissionId)
+          );
       }
 
       match /saved/{assetId} {
@@ -296,7 +381,8 @@ service cloud.firestore {
     match /verificationSubmissions/{submissionId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
       allow create: if isValidVerificationSubmissionCreate(submissionId);
-      allow update: if isAdmin() && isValidVerificationSubmissionAdminUpdate();
+      allow update: if (isAdmin() && isValidVerificationSubmissionAdminUpdate()) ||
+        isValidVerificationSubmissionSelfUpdate(submissionId);
       allow delete: if false;
     }
 
@@ -323,7 +409,13 @@ service cloud.firestore {
         request.resource.data.ownerId == request.auth.uid &&
         currentUserCanList();
       allow update, delete: if isAdmin() ||
-        (isSignedIn() && resource.data.ownerId == request.auth.uid && currentUserCanList());
+        (isSignedIn() && resource.data.ownerId == request.auth.uid && currentUserCanList()) ||
+        (
+          isSignedIn() &&
+          resource.data.ownerId == request.auth.uid &&
+          request.resource.data.verificationHoldSubmissionId is string &&
+          isValidVerificationHoldAssetUpdate(request.resource.data.verificationHoldSubmissionId)
+        );
 
       match /bookings/{bookingId} {
         allow read: if isSignedIn();

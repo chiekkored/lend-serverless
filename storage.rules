@@ -10,6 +10,11 @@ service firebase.storage {
       allow write: if request.auth != null && request.auth.uid == userId;
     }
 
+    match /{userId}/profile/photos/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
     match /{userId}/chats/{chatId}/{fileName} {
       allow read: if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == userId;
