@@ -3,6 +3,7 @@ const admin = require("firebase-admin");
 const { throwAndLogHttpsError } = require("../utils/error.util");
 const {
   BOOKING_STATUS,
+  ACTIVE_BOOKING_STATUSES,
   buildTokenUpdateData,
   assertBookingOwner,
   assertCanonicalBookingRange,
@@ -57,7 +58,7 @@ exports.confirmBooking = async (request) => {
 
       const booking = selectedSnap.data();
       assertBookingOwner(context.auth.uid, booking);
-      assertCanonicalBookingRange(booking);
+      const range = assertCanonicalBookingRange(booking);
       assertPendingBooking(booking);
       const { ownerId } = getBookingActors(booking);
       const ownerAssetMirrorRef = ownerId ? db.collection("users").doc(ownerId).collection("assets").doc(assetId) : null;
@@ -66,6 +67,17 @@ exports.confirmBooking = async (request) => {
       if (booking?.renter?.uid !== renterId) {
         throw new Error("Booking renter does not match request");
       }
+
+      const activeOverlapQuery = db
+        .collection("assets")
+        .doc(assetId)
+        .collection("bookings")
+        .where("startDate", "<", admin.firestore.Timestamp?.fromDate(range.endDate) || range.endDate)
+        .where("endDate", ">", admin.firestore.Timestamp?.fromDate(range.startDate) || range.startDate)
+        .where("status", "in", ACTIVE_BOOKING_STATUSES);
+      const activeOverlapSnap = await transaction.get(activeOverlapQuery);
+
+      assertNoActiveOverlap(activeOverlapSnap);
 
       const tokenData = buildTokenUpdateData({
         bookingId,
@@ -224,6 +236,9 @@ exports.confirmBooking = async (request) => {
     }
   } catch (error) {
     console.error(`[confirmBooking] Error: ${error.message}`);
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
+    }
     throwAndLogHttpsError("internal", error.message);
   }
 };
@@ -280,3 +295,16 @@ async function enqueueDeclineTask({ assetId, selectedBookingId, startDate, endDa
     throw error;
   }
 }
+
+function assertNoActiveOverlap(activeOverlapSnap) {
+  if (!activeOverlapSnap.empty) {
+    throwAndLogHttpsError(
+      "failed-precondition",
+      "This booking overlaps an active booking and can no longer be accepted",
+    );
+  }
+}
+
+exports._test = {
+  assertNoActiveOverlap,
+};

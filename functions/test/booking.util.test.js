@@ -31,6 +31,9 @@ const {
   _test: declineOverlappingBookingsTest,
 } = require("../calls/declineOverlappingBookings");
 const {
+  _test: confirmBookingTest,
+} = require("../calls/confirmBooking");
+const {
   _test: cancelBookingTest,
 } = require("../calls/cancelBooking");
 const {
@@ -339,6 +342,14 @@ test("decline overlap summary classifies partial mirror failures", () => {
     missingMirrorCount: 1,
     errorCount: 1,
   });
+});
+
+test("confirm booking rejects active overlapping bookings", () => {
+  assert.doesNotThrow(() => confirmBookingTest.assertNoActiveOverlap({ empty: true }));
+  assert.throws(
+    () => confirmBookingTest.assertNoActiveOverlap({ empty: false }),
+    /This booking overlaps an active booking/,
+  );
 });
 
 test("cancel booking reason is required and normalized", () => {
