@@ -9,6 +9,7 @@ const {
 } = require("../utils/booking.util");
 const { pendingBookingCountIncrementValue } = require("../utils/pendingBookingCount.util");
 const { updateRecommendationProfile } = require("../utils/recommendations.util");
+const { sendNotificationToUser } = require("../utils/notification.util");
 
 exports.createBookingRequest = async (request) => {
   const auth = request.auth;
@@ -171,6 +172,21 @@ exports.createBookingRequest = async (request) => {
       weight: 5,
       signalType: "bookingRequest",
     });
+  });
+
+  await sendNotificationToUser({
+    uid: asset.ownerId,
+    title: "New booking request",
+    body: `${renter.firstName || "Someone"} requested ${asset.title || "your listing"}.`,
+    data: {
+      type: "booking",
+      chatId: chatRef.id,
+      bookingId: bookingRef.id,
+      assetId,
+      senderId: renterId,
+    },
+  }).catch((error) => {
+    console.warn(`[createBookingRequest] Failed to send notification: ${error.message}`);
   });
 
   return {

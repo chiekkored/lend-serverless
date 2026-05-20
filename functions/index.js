@@ -19,7 +19,10 @@ const { recordRecommendationEvent } = require("./calls/recordRecommendationEvent
 const { getHomeRecommendations } = require("./calls/getHomeRecommendations.js");
 const { getHomeRecommended } = require("./calls/getHomeRecommended.js");
 const { getHomePopular } = require("./calls/getHomePopular.js");
+const { registerFcmToken } = require("./calls/registerFcmToken.js");
+const { unregisterFcmToken } = require("./calls/unregisterFcmToken.js");
 const { syncUserMetadata } = require("./scheduled/syncUserMetadata.js");
+const { notifyChatMessage } = require("./triggers/notifyChatMessage.js");
 
 // Initialize Firebase Admin SDK only once
 admin.initializeApp({
@@ -44,6 +47,8 @@ exports.getHomeRecommendations = functions.https.onCall(getHomeRecommendations);
 exports.getHomeRecommended = functions.https.onCall(getHomeRecommended);
 exports.getHomePopular = functions.https.onCall(getHomePopular);
 exports.recordRecommendationEvent = functions.https.onCall(recordRecommendationEvent);
+exports.registerFcmToken = functions.https.onCall(registerFcmToken);
+exports.unregisterFcmToken = functions.https.onCall(unregisterFcmToken);
 exports.diditVerificationWebhook = functions.https.onRequest(diditVerificationWebhook);
 if (process.env.FUNCTIONS_EMULATOR === "true") {
   const { bootstrapAdminUser } = require("./calls/bootstrapAdminUser.js");
@@ -55,3 +60,6 @@ exports.declineOverlappingBookings = declineOverlappingBookings;
 
 // Export scheduled functions
 // exports.syncUserMetadata = syncUserMetadata;
+
+// Export Firestore triggers
+exports.notifyChatMessage = notifyChatMessage;

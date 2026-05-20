@@ -12,6 +12,7 @@ const {
 } = require("../utils/booking.util");
 const { getTaskServiceAccountEmail } = require("../utils/task.util");
 const { pendingBookingCountIncrementValue } = require("../utils/pendingBookingCount.util");
+const { sendNotificationToUser } = require("../utils/notification.util");
 
 /**
  * Cloud Function: Two-Phase Booking Confirmation
@@ -162,12 +163,31 @@ exports.confirmBooking = async (request) => {
         startDate: booking.startDate,
         endDate: booking.endDate,
         messagesSent: !!chatId,
+        renterId,
+        chatId,
+        assetId,
+        assetTitle: booking.asset?.title,
         tokens: tokenData.rawTokens,
         expiries: tokenData.expiries,
       };
     });
 
     console.log(`[confirmBooking PHASE 1] Booking ${bookingId} confirmed successfully`);
+
+    await sendNotificationToUser({
+      uid: confirmResult.renterId,
+      title: "Booking confirmed",
+      body: `${confirmResult.assetTitle || "Your booking"} has been confirmed.`,
+      data: {
+        type: "booking",
+        chatId: confirmResult.chatId,
+        bookingId,
+        assetId,
+        senderId: context.auth.uid,
+      },
+    }).catch((error) => {
+      console.warn(`[confirmBooking] Failed to send notification: ${error.message}`);
+    });
 
     // --- PHASE 2: ENQUEUE CLOUD TASKS (Decline overlapping bookings asynchronously) ---
     // This is best-effort; if it fails, selected booking is still confirmed

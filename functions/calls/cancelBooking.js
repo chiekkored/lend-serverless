@@ -2,6 +2,7 @@ const admin = require("firebase-admin");
 const { throwAndLogHttpsError } = require("../utils/error.util");
 const { BOOKING_STATUS, CHAT_STATUS, getBookingRefs, getLifecycleMessageId } = require("../utils/booking.util");
 const { pendingBookingCountIncrementValue } = require("../utils/pendingBookingCount.util");
+const { sendNotificationToUser } = require("../utils/notification.util");
 
 exports.cancelBooking = async (request) => {
   const auth = request.auth;
@@ -120,6 +121,21 @@ exports.cancelBooking = async (request) => {
         { merge: true },
       );
     }
+  });
+
+  await sendNotificationToUser({
+    uid: ownerId,
+    title: "Booking cancelled",
+    body: `${booking?.asset?.title || "A booking"} was cancelled: ${cancelReason}`,
+    data: {
+      type: "booking",
+      chatId,
+      bookingId,
+      assetId,
+      senderId: auth.uid,
+    },
+  }).catch((error) => {
+    console.warn(`[cancelBooking] Failed to send notification: ${error.message}`);
   });
 
   return {

@@ -2,7 +2,7 @@
   "name": "functions",
   "description": "Cloud Functions for Firebase",
   "scripts": {
-    "test": "node --test test/booking.util.test.js test/accountFeedback.util.test.js test/didit.util.test.js test/recommendations.util.test.js",
+    "test": "node --test test/booking.util.test.js test/accountFeedback.util.test.js test/didit.util.test.js test/recommendations.util.test.js test/notification.util.test.js",
     "test:rules": "cd .. && firebase emulators:exec --only firestore,storage \"cd functions && node --test test/rules.test.js\"",
     "backfill:pending-booking-counts": "node scripts/backfillPendingBookingCounts.js",
     "backfill:chat-booking-dates": "node scripts/backfillChatBookingDates.js",
