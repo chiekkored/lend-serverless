@@ -9,10 +9,24 @@ function normalizePlatform(platform) {
   return ["android", "ios"].includes(platform) ? platform : "unknown";
 }
 
-async function sendNotificationToUser({ uid, title, body, data = {} }) {
+async function sendNotificationToUser({ uid, title, body, data = {} }, adminClient = admin) {
   if (!uid || !title || !body) return { successCount: 0, failureCount: 0 };
 
-  const db = admin.firestore();
+  const db = adminClient.firestore();
+  const notificationData = stringifyData(data);
+  const notificationRef = await db
+    .collection("users")
+    .doc(uid)
+    .collection("notifications")
+    .add({
+      title,
+      body,
+      type: notificationData.type || "general",
+      data: notificationData,
+      readAt: null,
+      createdAt: adminClient.firestore.FieldValue.serverTimestamp(),
+    });
+
   const tokensSnap = await db
     .collection("users")
     .doc(uid)
@@ -24,12 +38,14 @@ async function sendNotificationToUser({ uid, title, body, data = {} }) {
     .map((doc) => ({ ref: doc.ref, token: doc.data()?.token }))
     .filter((doc) => typeof doc.token === "string" && doc.token.length > 0);
 
-  if (tokenDocs.length === 0) return { successCount: 0, failureCount: 0 };
+  if (tokenDocs.length === 0) {
+    return { successCount: 0, failureCount: 0, notificationId: notificationRef.id };
+  }
 
   const payload = {
     tokens: tokenDocs.map((doc) => doc.token),
     notification: { title, body },
-    data: stringifyData(data),
+    data: notificationData,
     android: {
       priority: "high",
       notification: {
@@ -45,7 +61,7 @@ async function sendNotificationToUser({ uid, title, body, data = {} }) {
     },
   };
 
-  const response = await admin.messaging().sendEachForMulticast(payload);
+  const response = await adminClient.messaging().sendEachForMulticast(payload);
   const cleanup = [];
 
   response.responses.forEach((result, index) => {
@@ -61,6 +77,7 @@ async function sendNotificationToUser({ uid, title, body, data = {} }) {
   return {
     successCount: response.successCount,
     failureCount: response.failureCount,
+    notificationId: notificationRef.id,
   };
 }
 

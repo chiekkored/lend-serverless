@@ -14,13 +14,8 @@ exports.registerFcmToken = async (request) => {
     throwAndLogHttpsError("invalid-argument", "Invalid FCM token");
   }
 
-  const now = admin.firestore.FieldValue.serverTimestamp();
-  const tokenRef = admin
-    .firestore()
-    .collection("users")
-    .doc(auth.uid)
-    .collection("fcmTokens")
-    .doc(tokenDocId(token));
+  const now = admin.firestore?.FieldValue?.serverTimestamp() || new Date();
+  const tokenRef = admin.firestore().collection("users").doc(auth.uid).collection("fcmTokens").doc(tokenDocId(token));
 
   await tokenRef.set(
     {

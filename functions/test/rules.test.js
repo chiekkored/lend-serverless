@@ -108,7 +108,6 @@ test("users can create one pending verification submission atomically", async ()
     requestType: "upgrade_verification",
   }));
   batch.update(doc(ownerDb, "users/owner"), {
-    phone: "09171234567",
     fullVerification: verificationSummaryData("submission-1"),
     userMetadataVersion: increment(1),
   });
@@ -118,6 +117,31 @@ test("users can create one pending verification submission atomically", async ()
     doc(otherDb, "verificationSubmissions/submission-other"),
     verificationSubmissionData("submission-other", "owner"),
   ));
+});
+
+test("full verification submission cannot update profile fields before review", async () => {
+  const ownerDb = testEnv.authenticatedContext("owner").firestore();
+
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await updateDoc(doc(db, "users/owner"), {
+      verified: "Basic",
+      fullVerification: null,
+      userMetadataVersion: 1,
+    });
+  });
+
+  const batch = writeBatch(ownerDb);
+  batch.set(doc(ownerDb, "verificationSubmissions/submission-profile-write"), verificationSubmissionData("submission-profile-write", "owner", {
+    requestType: "upgrade_verification",
+  }));
+  batch.update(doc(ownerDb, "users/owner"), {
+    phone: "09171234567",
+    fullVerification: verificationSummaryData("submission-profile-write"),
+    userMetadataVersion: increment(1),
+  });
+
+  await assertFails(batch.commit());
 });
 
 test("account information submissions only update pending verification metadata", async () => {
@@ -322,6 +346,27 @@ test("users can list only their own booking mirror collection", async () => {
   await assertFails(getDocs(collection(otherDb, "users/renter/bookings")));
 });
 
+test("users can read and mark only their own notifications", async () => {
+  const ownerDb = testEnv.authenticatedContext("owner").firestore();
+  const otherDb = testEnv.authenticatedContext("other").firestore();
+
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, "users/owner/notifications/notification-1"), notificationData());
+  });
+
+  await assertSucceeds(getDocs(collection(ownerDb, "users/owner/notifications")));
+  await assertSucceeds(updateDoc(doc(ownerDb, "users/owner/notifications/notification-1"), {
+    readAt: new Date("2026-04-03T00:00:00.000Z"),
+  }));
+  await assertFails(getDocs(collection(otherDb, "users/owner/notifications")));
+  await assertFails(setDoc(doc(ownerDb, "users/owner/notifications/notification-2"), notificationData()));
+  await assertFails(updateDoc(doc(ownerDb, "users/owner/notifications/notification-1"), {
+    title: "Changed",
+  }));
+  await assertFails(deleteDoc(doc(ownerDb, "users/owner/notifications/notification-1")));
+});
+
 test("user booking updates cannot mutate lifecycle fields", async () => {
   const renterDb = testEnv.authenticatedContext("renter").firestore();
 
@@ -443,6 +488,21 @@ function accountFeedbackData(id, overrides = {}) {
     action: "delete",
     reason: "No longer need Lend",
     feedback: "Optional product feedback",
+    createdAt: new Date("2026-04-02T00:00:00.000Z"),
+    ...overrides,
+  };
+}
+
+function notificationData(overrides = {}) {
+  return {
+    title: "Verification approved",
+    body: "Your full verification has been approved.",
+    type: "verification",
+    data: {
+      type: "verification",
+      status: "Approved",
+    },
+    readAt: null,
     createdAt: new Date("2026-04-02T00:00:00.000Z"),
     ...overrides,
   };

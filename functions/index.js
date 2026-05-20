@@ -23,6 +23,7 @@ const { registerFcmToken } = require("./calls/registerFcmToken.js");
 const { unregisterFcmToken } = require("./calls/unregisterFcmToken.js");
 const { syncUserMetadata } = require("./scheduled/syncUserMetadata.js");
 const { notifyChatMessage } = require("./triggers/notifyChatMessage.js");
+const { notifyVerificationReview } = require("./triggers/notifyVerificationReview.js");
 
 // Initialize Firebase Admin SDK only once
 admin.initializeApp({
@@ -63,3 +64,4 @@ exports.declineOverlappingBookings = declineOverlappingBookings;
 
 // Export Firestore triggers
 exports.notifyChatMessage = notifyChatMessage;
+exports.notifyVerificationReview = notifyVerificationReview;
