@@ -9,11 +9,11 @@
           "order": "ASCENDING"
         },
         {
-          "fieldPath": "startDate",
+          "fieldPath": "endDate",
           "order": "ASCENDING"
         },
         {
-          "fieldPath": "endDate",
+          "fieldPath": "startDate",
           "order": "ASCENDING"
         }
       ]

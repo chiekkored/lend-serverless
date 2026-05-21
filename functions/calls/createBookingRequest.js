@@ -176,7 +176,7 @@ exports.createBookingRequest = async (request) => {
 
   await sendNotificationToUser({
     uid: asset.ownerId,
-    title: "New booking request",
+    title: "Booking Request",
     body: `${renter.firstName || "Someone"} requested ${asset.title || "your listing"}.`,
     data: {
       type: "booking",
