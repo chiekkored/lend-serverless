@@ -11,7 +11,12 @@ const {
   getBookingActors,
   getLifecycleMessageId,
 } = require("../utils/booking.util");
-const { getTaskServiceAccountEmail } = require("../utils/task.util");
+const {
+  getDeclineOverlappingBookingsUrl,
+  getTaskServiceAccountEmail,
+  isFunctionsEmulator,
+  resolveProjectId,
+} = require("../utils/task.util");
 const { pendingBookingCountIncrementValue } = require("../utils/pendingBookingCount.util");
 const { sendNotificationToUser } = require("../utils/notification.util");
 
@@ -61,7 +66,9 @@ exports.confirmBooking = async (request) => {
       const range = assertCanonicalBookingRange(booking);
       assertPendingBooking(booking);
       const { ownerId } = getBookingActors(booking);
-      const ownerAssetMirrorRef = ownerId ? db.collection("users").doc(ownerId).collection("assets").doc(assetId) : null;
+      const ownerAssetMirrorRef = ownerId
+        ? db.collection("users").doc(ownerId).collection("assets").doc(assetId)
+        : null;
       const ownerAssetMirrorSnap = ownerAssetMirrorRef ? await transaction.get(ownerAssetMirrorRef) : null;
 
       if (booking?.renter?.uid !== renterId) {
@@ -254,35 +261,21 @@ async function enqueueDeclineTask({ assetId, selectedBookingId, startDate, endDa
     const cloudTasks = require("@google-cloud/tasks");
     const client = new cloudTasks.CloudTasksClient();
 
-    const project = process.env.GCP_PROJECT;
+    const project = resolveProjectId();
     const queue = "decline-overlapping-bookings";
     const location = "us-central1";
-    const url = `https://us-central1-${project}.cloudfunctions.net/declineOverlappingBookings`;
-    const serviceAccountEmail = getTaskServiceAccountEmail(project);
+    const url = getDeclineOverlappingBookingsUrl({ projectId: project });
 
     const parent = client.queuePath(project, location, queue);
-
-    const task = {
-      httpRequest: {
-        httpMethod: "POST",
-        url,
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: Buffer.from(
-          JSON.stringify({
-            assetId,
-            selectedBookingId,
-            startDate: startDate?.toMillis?.() || startDate,
-            endDate: endDate?.toMillis?.() || endDate,
-          }),
-        ).toString("base64"),
-        oidcToken: {
-          serviceAccountEmail,
-          audience: url,
-        },
-      },
-    };
+    const task = buildDeclineTask({
+      assetId,
+      selectedBookingId,
+      startDate,
+      endDate,
+      project,
+      url,
+      includeOidcToken: !isFunctionsEmulator(),
+    });
 
     const request = { parent, task };
     const [response] = await client.createTask(request);
@@ -296,6 +289,41 @@ async function enqueueDeclineTask({ assetId, selectedBookingId, startDate, endDa
   }
 }
 
+function buildDeclineTask({
+  assetId,
+  selectedBookingId,
+  startDate,
+  endDate,
+  project,
+  url,
+  includeOidcToken = true,
+}) {
+  const httpRequest = {
+    httpMethod: "POST",
+    url,
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: Buffer.from(
+      JSON.stringify({
+        assetId,
+        selectedBookingId,
+        startDate: startDate?.toMillis?.() || startDate,
+        endDate: endDate?.toMillis?.() || endDate,
+      }),
+    ).toString("base64"),
+  };
+
+  if (includeOidcToken) {
+    httpRequest.oidcToken = {
+      serviceAccountEmail: getTaskServiceAccountEmail(project),
+      audience: url,
+    };
+  }
+
+  return { httpRequest };
+}
+
 function assertNoActiveOverlap(activeOverlapSnap) {
   if (!activeOverlapSnap.empty) {
     throwAndLogHttpsError(
@@ -307,4 +335,5 @@ function assertNoActiveOverlap(activeOverlapSnap) {
 
 exports._test = {
   assertNoActiveOverlap,
+  buildDeclineTask,
 };

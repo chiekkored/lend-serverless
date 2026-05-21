@@ -24,6 +24,10 @@ const {
   pendingBookingCountIncrementValue,
 } = require("../utils/pendingBookingCount.util");
 const {
+  getDeclineOverlappingBookingsUrl,
+  resolveProjectId,
+} = require("../utils/task.util");
+const {
   createSignedToken,
   validateSignedQrToken,
 } = require("../utils/token.util");
@@ -41,6 +45,30 @@ const {
 } = require("../calls/submitBookingReview");
 
 process.env.QR_SECRET = "test-secret";
+
+function withEnv(overrides, callback) {
+  const previous = {};
+  for (const key of Object.keys(overrides)) {
+    previous[key] = process.env[key];
+    if (overrides[key] === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = overrides[key];
+    }
+  }
+
+  try {
+    return callback();
+  } finally {
+    for (const key of Object.keys(overrides)) {
+      if (previous[key] === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = previous[key];
+      }
+    }
+  }
+}
 
 test("exclusiveDayCount excludes the return boundary day", () => {
   assert.equal(
@@ -349,6 +377,94 @@ test("confirm booking rejects active overlapping bookings", () => {
   assert.throws(
     () => confirmBookingTest.assertNoActiveOverlap({ empty: false }),
     /This booking overlaps an active booking/,
+  );
+});
+
+test("decline task target points to functions emulator when enabled", () => {
+  withEnv(
+    {
+      FUNCTIONS_EMULATOR: "true",
+      GCP_PROJECT: undefined,
+      GCLOUD_PROJECT: "lend-54b2e",
+      FIREBASE_CONFIG: undefined,
+      FUNCTIONS_EMULATOR_HOST: undefined,
+      FUNCTIONS_EMULATOR_PORT: undefined,
+    },
+    () => {
+      assert.equal(resolveProjectId(), "lend-54b2e");
+      assert.equal(
+        getDeclineOverlappingBookingsUrl(),
+        "http://127.0.0.1:5001/lend-54b2e/us-central1/declineOverlappingBookings",
+      );
+    },
+  );
+});
+
+test("decline task target uses deployed URL outside emulator", () => {
+  withEnv(
+    {
+      FUNCTIONS_EMULATOR: undefined,
+      GCP_PROJECT: "lend-54b2e",
+      GCLOUD_PROJECT: undefined,
+      FIREBASE_CONFIG: undefined,
+    },
+    () => {
+      assert.equal(
+        getDeclineOverlappingBookingsUrl(),
+        "https://declineoverlappingbookings-5d4s7snsja-uc.a.run.app",
+      );
+    },
+  );
+});
+
+test("decline task omits oidc token for emulator target", () => {
+  const task = confirmBookingTest.buildDeclineTask({
+    assetId: "asset-1",
+    selectedBookingId: "booking-1",
+    startDate: 1775750400000,
+    endDate: 1775923200000,
+    project: "lend-54b2e",
+    url: "http://127.0.0.1:5001/lend-54b2e/us-central1/declineOverlappingBookings",
+    includeOidcToken: false,
+  });
+
+  assert.equal(task.httpRequest.oidcToken, undefined);
+  assert.equal(
+    task.httpRequest.url,
+    "http://127.0.0.1:5001/lend-54b2e/us-central1/declineOverlappingBookings",
+  );
+  assert.deepEqual(
+    JSON.parse(Buffer.from(task.httpRequest.body, "base64").toString("utf8")),
+    {
+      assetId: "asset-1",
+      selectedBookingId: "booking-1",
+      startDate: 1775750400000,
+      endDate: 1775923200000,
+    },
+  );
+});
+
+test("decline task includes oidc token for production target", () => {
+  withEnv(
+    {
+      TASKS_SERVICE_ACCOUNT_EMAIL: "tasks@lend-54b2e.iam.gserviceaccount.com",
+    },
+    () => {
+      const task = confirmBookingTest.buildDeclineTask({
+        assetId: "asset-1",
+        selectedBookingId: "booking-1",
+        startDate: 1775750400000,
+        endDate: 1775923200000,
+        project: "lend-54b2e",
+        url: "https://declineoverlappingbookings-5d4s7snsja-uc.a.run.app",
+        includeOidcToken: true,
+      });
+
+      assert.deepEqual(task.httpRequest.oidcToken, {
+        serviceAccountEmail: "tasks@lend-54b2e.iam.gserviceaccount.com",
+        audience: "https://declineoverlappingbookings-5d4s7snsja-uc.a.run.app",
+      });
+    },
   );
 });
 
